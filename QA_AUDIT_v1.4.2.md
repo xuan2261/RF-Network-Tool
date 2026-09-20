@@ -2,28 +2,35 @@
 
 ## Scope
 
-Verification infrastructure and runtime-regression audit for the v1.4.1 code line.
+Verification infrastructure and runtime-regression audit for RF-Network-Tool v1.4.2, including defects discovered only after executing on GitHub-hosted Windows PowerShell 5.1.
 
-## Fresh local execution
+## Executed evidence
 
-- Active static/model test files: 14/14 PASS.
-- Individual assertions: 229/229 PASS.
-- Python test/release-tool compilation: PASS.
-- GitHub workflow YAML parsing: PASS for both workflows.
-- Runtime diff against v1.4.1: no functional code change; only release/user-agent labels changed.
+- Active deterministic/static suites execute in GitHub Actions and are required to pass before packaging.
+- Windows PowerShell 5.1 integration executes independently on `windows-2022` and `windows-2025`.
+- The built-in PowerShell parser covers the launcher, main script, and four workers.
+- PSScriptAnalyzer 1.25.0 executes on both Windows lanes; Error/ParseError findings are release-blocking.
+- Launcher diagnostic E2E executes the real launcher in STA mode and verifies WinForms/parser/startup-log gates.
+- Release packaging is gated behind static + both Windows lanes, followed by package integrity and CRC checks.
+- Release artifacts are staged inside the Actions workspace before upload.
+- GitHub Actions dependencies use current Node 24 generations (`checkout@v7`, `setup-python@v7`, `upload-artifact@v7`).
 
-## Added gates
+## Defects found and repaired during live CI
 
-- `.github/workflows/ci.yml`: static/model, Windows PowerShell 5.1 integration on `windows-2022` and `windows-2025`, PSScriptAnalyzer, launcher diagnostic E2E, and release packaging.
-- `.github/workflows/ui-e2e-selfhosted.yml`: manual interactive WinForms UI smoke on a self-hosted logged-in Windows runner.
-- `WINDOWS_INTEGRATION_TEST_v1_4_2.ps1`: validates parser/runtime workers, launcher diagnostic, request-level PingWorker failure payload, and recovery after that failure.
-- `WINDOWS_LINT_GATE_v1_4_2.ps1`: built-in parser + PSScriptAnalyzer Error/ParseError gate.
-- `WINDOWS_LAUNCHER_E2E_v1_4_2.ps1`: isolated temp sandbox, launcher diagnostic, real WinForms startup, tab discovery/navigation, graceful shutdown and startup-log audit.
+1. **Windows PowerShell 5.1 generic-list enumeration** — `@($list)` on `List[object]` caused runtime `Argument types do not match`. Runtime paths were changed to `.ToArray()` and regression guards were added.
+2. **DEEP integration assertion** — the test incorrectly counted open ports instead of performed `PortChecks`; the test contract was corrected.
+3. **Launcher E2E argument forwarding** — the helper used the PowerShell automatic variable name `$args`, so the child process lost `-STA -File ... -Diagnostic`. It now uses `$argumentString` with dedicated regression guards.
+4. **Artifact upload path** — `upload-artifact` rejects parent traversal (`../`). Release candidates are now staged under `ci-artifacts/release/`.
+5. **Full-project package contamination** — audit of a real Actions artifact found `.git` metadata inside the project ZIP. The release builder and package tests now exclude/reject VCS metadata.
+6. **Generated verification metadata** — `BUILD_CHECKS_v1.4.2.json`, `RELEASE_MANIFEST_v1.4.2.json`, and `SHA256.txt` are generated outputs and are no longer tracked in Git, preventing stale hashes/status from living in source control.
 
 ## Verification status
 
-- DESIGN/PLAN PASS: CI/E2E topology and fail-closed packaging chain.
-- EXECUTION PASS: local deterministic/static suite, workflow-contract tests, Python compilation, YAML parse, package integrity once built.
-- NOT YET VERIFIED: Windows PowerShell 5.1 integration, PSScriptAnalyzer execution on Windows, hosted Actions execution, interactive WinForms GUI E2E. Those require a Windows/GitHub runner not available in the current execution environment.
+- **EXECUTION PASS**: deterministic/static contracts on hosted CI.
+- **EXECUTION PASS**: Windows PowerShell 5.1 runtime integration on Windows Server 2022.
+- **EXECUTION PASS**: Windows PowerShell 5.1 runtime integration on Windows Server 2025.
+- **EXECUTION PASS**: PSScriptAnalyzer Error/ParseError gate and launcher diagnostic E2E on both hosted Windows lanes.
+- **EXECUTION PASS**: reproducible package build/integrity gate and uploaded release artifact.
+- **NOT YET VERIFIED**: interactive WinForms UI automation requiring a logged-in self-hosted Windows runner labeled `rft-interactive`.
 
-No claim of full Windows E2E success is made until those jobs are actually green.
+Hosted diagnostic E2E is real execution, but it is not represented as full interactive desktop UI E2E. The latter remains intentionally separate and must not be claimed as passed until that workflow actually runs green.
