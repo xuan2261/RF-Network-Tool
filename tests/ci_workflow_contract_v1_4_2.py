@@ -4,6 +4,7 @@ import re,sys
 root=Path(__file__).resolve().parents[1]
 ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 ui=(root/'.github/workflows/ui-e2e-selfhosted.yml').read_text(encoding='utf-8')
+lint=(root/'tests/WINDOWS_LINT_GATE_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 checks={
  'ci_push_pr_manual': all(x in ci for x in ['push:','pull_request:','workflow_dispatch:']),
  'ci_least_privilege':'contents: read' in ci,
@@ -13,6 +14,7 @@ checks={
  'ci_ps51_integration':'WINDOWS_INTEGRATION_TEST_v1_4_2.ps1' in ci and 'shell: powershell' in ci,
  'ci_psscriptanalyzer_pinned':'PSScriptAnalyzer -RequiredVersion 1.25.0' in ci,
  'ci_lint_gate':'WINDOWS_LINT_GATE_v1_4_2.ps1' in ci,
+ 'ci_lint_high_signal_rules':all(x in lint for x in ['PSAvoidAssignmentToAutomaticVariable','PSPossibleIncorrectComparisonWithNull','PSScriptAnalyzer high-signal warnings']),
  'ci_launcher_e2e':'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly' in ci,
  'ci_package_needs_runtime':'needs: [static-contracts, windows-runtime]' in ci,
  'ci_package_test':'release_package_test_v1_4_2.py' in ci,
