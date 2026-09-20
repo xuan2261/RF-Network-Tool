@@ -135,6 +135,6 @@ checks={
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():print(('PASS' if v else 'FAIL'),k)
 print('TOTAL',len(checks),'FAILED',len(failed))
-(root/'BUILD_CHECKS_v1.4.2.json').write_text(json.dumps({'release':'v1.4.2 Full QA / CI-E2E','all_pass':not failed,'checks':checks,'limitations':['Linux-side structural/static/deterministic audit; Windows PowerShell 5.1 parser/WinForms/network runtime requires RUN-TESTS.cmd on Windows.']},ensure_ascii=False,indent=2),encoding='utf-8')
+(root/'BUILD_CHECKS_v1.4.2.json').write_text(json.dumps({'release':'v1.4.2 Full QA / CI-E2E','all_pass':not failed,'checks':checks,'limitations':['Static/deterministic source audit only. Hosted Windows PowerShell 5.1 runtime evidence is owned by GitHub Actions; interactive WinForms UI E2E remains a separate self-hosted gate.']},ensure_ascii=False,indent=2),encoding='utf-8')
 if failed:print('FAILED_KEYS',failed)
 sys.exit(1 if failed else 0)
