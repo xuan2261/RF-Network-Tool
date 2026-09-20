@@ -63,12 +63,12 @@ def ambiguous_colon_interpolation(s):
                 hits.append((i,m.group(0)))
     return hits
 def bad_auto(s):
-    autos={'host','home','pid','pwd','pshome','psversiontable','error','args','input','matches','null','true','false','this','executioncontext','myinvocation','psboundparameters','profile'}
+    autos={'host','home','pid','pwd','pshome','psversiontable','error','args','input','matches','null','true','false','this','executioncontext','myinvocation','psboundparameters','profile','sender'}
     hits=[]
     for i,l in enumerate(strip_ps(s).splitlines(),1):
         m=re.match(r'^\s*\$([A-Za-z_]\w*)\s*(?:=|\+=|-=|\+\+|--)',l,re.I)
         if m and m.group(1).lower() in autos:hits.append((i,m.group(1)))
-    for name in ['args','error','input','host','profile']:
+    for name in ['args','error','input','host','profile','sender']:
         if re.search(r'(?i)(?:param\s*\(|function\s+[\w-]+\s*\([^)]*)[^)]*\$'+name+r'\b',strip_ps(s),re.S):hits.append((-1,name))
     return hits
 vbs=(root/'START-RF-NETWORK-TOOL.vbs').read_bytes()
@@ -84,6 +84,7 @@ checks={
  'no_duplicate_functions':all(not dups(x) for x in texts.values()),
  'no_definition_only_functions':all(not def_only(x) for x in texts.values()),
  'no_auto_variable_regression':all(not bad_auto(x) for x in texts.values()),
+ 'null_comparisons_left_safe':all(not re.search(r'(?i)\$(?!null\b)[A-Za-z_][\w.]*\s+-(?:eq|ne)\s+\$null\b',strip_ps(x)) for x in texts.values()),
  'no_ambiguous_colon_interpolation':all(not ambiguous_colon_interpolation(x) for x in texts.values()),
  'no_ordered_parameter_regression':all('[ordered]$' not in x.lower() for x in texts.values()),
  'no_uint64_hex_regression':'[uint64]0xffffffff' not in mt.lower(),
