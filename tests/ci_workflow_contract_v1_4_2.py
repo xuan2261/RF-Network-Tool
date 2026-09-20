@@ -5,6 +5,7 @@ root=Path(__file__).resolve().parents[1]
 ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 ui=(root/'.github/workflows/ui-e2e-selfhosted.yml').read_text(encoding='utf-8')
 lint=(root/'tests/WINDOWS_LINT_GATE_v1_4_2.ps1').read_text(encoding='utf-8-sig')
+e2e=(root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 checks={
  'ci_push_pr_manual': all(x in ci for x in ['push:','pull_request:','workflow_dispatch:']),
  'ci_least_privilege':'contents: read' in ci,
@@ -16,6 +17,7 @@ checks={
  'ci_lint_gate':'WINDOWS_LINT_GATE_v1_4_2.ps1' in ci,
  'ci_lint_high_signal_rules':all(x in lint for x in ['PSAvoidAssignmentToAutomaticVariable','PSPossibleIncorrectComparisonWithNull','PSScriptAnalyzer high-signal warnings']),
  'ci_launcher_e2e':'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly' in ci,
+ 'ci_hosted_ui_smoke':'Hosted WinForms UI smoke E2E' in ci and 'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -TimeoutSec 20' in ci,
  'ci_package_needs_runtime':'needs: [static-contracts, windows-runtime]' in ci,
  'ci_package_test':'release_package_test_v1_4_2.py' in ci,
  'ci_static_cleanliness':'Ensure tests do not mutate tracked source' in ci and 'git diff --exit-code' in ci,
@@ -31,10 +33,10 @@ checks={
  'ui_artifact':'winforms-e2e-evidence' in ui,
  'ci_node24_actions':ci.count('actions/checkout@v7')>=3 and ci.count('actions/setup-python@v7')>=2 and ci.count('actions/upload-artifact@v7')>=2,
  'ui_node24_actions':'actions/checkout@v7' in ui and 'actions/upload-artifact@v7' in ui,
- 'ui_script_isolated_sandbox':"RFT-v142-e2e-" in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig'),
- 'ui_script_uses_uia':'System.Windows.Automation.AutomationElement' in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig'),
- 'ui_capture_avoids_args_automatic_var':"[string]$args" not in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig') and "[string]$argumentString" in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig'),
- 'ui_capture_forwards_argument_string':"$psi.Arguments=$argumentString" in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig'),
+ 'ui_script_isolated_sandbox':"RFT-v142-e2e-" in e2e,
+ 'ui_script_uses_uia':'System.Windows.Automation.AutomationElement' in e2e,
+ 'ui_capture_avoids_args_automatic_var':"[string]$args" not in e2e and "[string]$argumentString" in e2e,
+ 'ui_capture_forwards_argument_string':"$psi.Arguments=$argumentString" in e2e,
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items(): print(('PASS' if v else 'FAIL'),k)
