@@ -23,9 +23,17 @@ def clean_bytecode(root):
  for p in list(root.rglob('*.pyc')):
   try:p.unlink()
   except FileNotFoundError:pass
+GENERATED_TOP_LEVEL_DIRS={'.git','__pycache__','logs','oui-data','real-machine-results'}
+GENERATED_TOP_LEVEL_FILES={
+ 'BUILD_CHECKS_v1.4.2.json','RF-Network-Tool.targets.json','RF-Network-Tool.targets.txt',
+ 'RF-Network-Tool.device-history.json','RF-Network-Tool.discovery-targets.json','RF-Network-Tool.discovery-cache.json'
+}
 def is_excluded(root,p):
  rel=p.relative_to(root)
- return '.git' in rel.parts or '__pycache__' in rel.parts or p.suffix=='.pyc'
+ if any(part in {'.git','__pycache__'} for part in rel.parts): return True
+ if rel.parts and rel.parts[0] in GENERATED_TOP_LEVEL_DIRS: return True
+ if rel.as_posix() in GENERATED_TOP_LEVEL_FILES: return True
+ return p.suffix in {'.pyc','.tmp'}
 def write_sha_tree(root):
  rows=[]
  for p in sorted(root.rglob('*')):
