@@ -3,7 +3,7 @@ name: RF Network Tool CI
 on:
   push:
     branches: [main]
-    tags: [v1.4.2]
+    tags: ['v*.*.*']
   pull_request:
   workflow_dispatch:
 
@@ -100,6 +100,10 @@ jobs:
   package:
     name: Reproducible release package
     needs: [static-contracts, windows-runtime]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      artifact_name: ${{ steps.version.outputs.artifact_name }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -114,8 +118,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.13'
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid VERSION: $version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=rf-network-tool-v$version" >> "$GITHUB_OUTPUT"
       - name: Build release zips
-        run: python release_tools/build_release_v1_4_2.py
+        run: python release_tools/build_release.py
       - name: Package integrity tests
         run: python tests/release_package_test_v1_4_2.py
       - name: Byte reproducibility test
@@ -123,8 +137,9 @@ jobs:
       - name: Stage release candidates inside workspace
         run: |
           mkdir -p ci-artifacts/release
-          cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip ci-artifacts/release/
-          cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip ci-artifacts/release/
+          version="${{ steps.version.outputs.version }}"
+          cp "../RF-Network-Tool-v${version}-FULL-QA-CI-E2E-PROJECT.zip" ci-artifacts/release/
+          cp "../RF-Network-Tool-v${version}-FULL-QA-CI-E2E-PORTABLE.zip" ci-artifacts/release/
       - name: Attest release candidates
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
@@ -144,14 +159,14 @@ jobs:
       - name: Upload release candidates
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: rf-network-tool-v1.4.2
+          name: ${{ steps.version.outputs.artifact_name }}
           path: ci-artifacts/release/*.zip
           if-no-files-found: error
 
 
   release:
     name: Publish GitHub Release
-    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.4.2'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [package]
     runs-on: ubuntu-24.04
     permissions:
@@ -159,66 +174,102 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate tag against VERSION
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          expected_tag="v${version}"
+          if [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
+            echo "Tag/version mismatch: tag=$GITHUB_REF_NAME VERSION=$version expected=$expected_tag" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$expected_tag" >> "$GITHUB_OUTPUT"
       - name: Download verified release candidates
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: rf-network-tool-v1.4.2
+          name: ${{ needs.package.outputs.artifact_name }}
           path: release-assets
       - name: Build public checksum file
         run: |
           cd release-assets
           sha256sum *.zip | sort > SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -eq 2
-      - name: Publish or refresh v1.4.2 release
+      - name: Create draft, verify assets, then publish
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: v1.4.2
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           expected=(
-            "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip"
-            "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip"
+            "RF-Network-Tool-v${RELEASE_VERSION}-FULL-QA-CI-E2E-PORTABLE.zip"
+            "RF-Network-Tool-v${RELEASE_VERSION}-FULL-QA-CI-E2E-PROJECT.zip"
             "SHA256SUMS.txt"
           )
           for f in "${expected[@]}"; do test -s "release-assets/$f"; done
 
           if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            release_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
-            if [ "$release_sha" != "$GITHUB_SHA" ]; then
-              echo "Refusing to overwrite $RELEASE_TAG: tag resolves to $release_sha, current commit is $GITHUB_SHA" >&2
-              exit 1
-            fi
-            gh release upload "$RELEASE_TAG" release-assets/* -R "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"               --title "RF & Network Diagnostic Tool v1.4.2 — Full QA / CI-E2E"               --notes-file RELEASE_NOTES_v1.4.2.md               --latest
-          else
-            gh release create "$RELEASE_TAG" release-assets/* -R "$GITHUB_REPOSITORY"               --target "$GITHUB_SHA"               --title "RF & Network Diagnostic Tool v1.4.2 — Full QA / CI-E2E"               --notes-file RELEASE_NOTES_v1.4.2.md               --latest
+            echo "Refusing to overwrite existing release $RELEASE_TAG" >&2
+            exit 1
           fi
 
-          gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"             --json tagName,isDraft,isPrerelease,assets,url > release-assets/release-view.json
+          gh release create "$RELEASE_TAG" release-assets/* -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "RF & Network Diagnostic Tool ${RELEASE_TAG} — Full QA / CI-E2E" \
+            --notes-file RELEASE_NOTES.md \
+            --draft
+
+          gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,assets,url > release-assets/release-view-draft.json
           python - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
-          p=Path("release-assets/release-view.json")
-          d=json.loads(p.read_text(encoding="utf-8"))
-          names={a["name"] for a in d["assets"]}
+          version=os.environ['RELEASE_VERSION']; tag=os.environ['RELEASE_TAG']
+          d=json.loads(Path('release-assets/release-view-draft.json').read_text(encoding='utf-8'))
+          names={a['name'] for a in d['assets']}
           expected={
-              "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip",
-              "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip",
-              "SHA256SUMS.txt",
+              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PORTABLE.zip',
+              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PROJECT.zip',
+              'SHA256SUMS.txt',
           }
-          missing=expected-names
-          assert d["tagName"]=="v1.4.2", d
-          assert d["isDraft"] is False, d
-          assert d["isPrerelease"] is False, d
-          assert not missing, f"Missing release assets: {sorted(missing)}"
-          print("RELEASE ASSET VERIFICATION PASSED:", ", ".join(sorted(expected)))
+          assert d['tagName']==tag, d
+          assert d['isDraft'] is True, d
+          assert d['isPrerelease'] is False, d
+          assert not (expected-names), f'Missing draft release assets: {sorted(expected-names)}'
+          print('DRAFT RELEASE ASSET VERIFICATION PASSED:', ', '.join(sorted(expected)))
+          PY
+
+          gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,assets,url > release-assets/release-view.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          version=os.environ['RELEASE_VERSION']; tag=os.environ['RELEASE_TAG']
+          d=json.loads(Path('release-assets/release-view.json').read_text(encoding='utf-8'))
+          names={a['name'] for a in d['assets']}
+          expected={
+              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PORTABLE.zip',
+              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PROJECT.zip',
+              'SHA256SUMS.txt',
+          }
+          assert d['tagName']==tag, d
+          assert d['isDraft'] is False, d
+          assert d['isPrerelease'] is False, d
+          assert not (expected-names), f'Missing release assets: {sorted(expected-names)}'
+          print('RELEASE ASSET VERIFICATION PASSED:', ', '.join(sorted(expected)))
           PY
       - name: Upload release publication evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: release-publication-evidence
+          name: release-publication-evidence-${{ steps.version.outputs.version }}
           path: |
             release-assets/SHA256SUMS.txt
+            release-assets/release-view-draft.json
             release-assets/release-view.json
           if-no-files-found: ignore
+
