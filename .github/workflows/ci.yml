@@ -77,11 +77,14 @@ jobs:
         run: python release_tools/build_release_v1_4_2.py
       - name: Package integrity tests
         run: python tests/release_package_test_v1_4_2.py
+      - name: Stage release candidates inside workspace
+        run: |
+          mkdir -p ci-artifacts/release
+          cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip ci-artifacts/release/
+          cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip ci-artifacts/release/
       - name: Upload release candidates
         uses: actions/upload-artifact@v4
         with:
           name: rf-network-tool-v1.4.2
-          path: |
-            ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip
-            ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip
+          path: ci-artifacts/release/*.zip
           if-no-files-found: error
