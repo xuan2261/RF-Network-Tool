@@ -78,9 +78,13 @@ function Invoke-Step([string]$name,[string]$script,[string]$arguments='',[int]$t
         $p=Start-CleanWindowsPowerShell $argLine $stdout $stderr
         if(-not $p.WaitForExit($timeoutSec*1000)){
             try{$p.Kill()}catch{}
+            try{[void]$p.WaitForExit(5000)}catch{}
+            try{$p.Dispose()}catch{};$p=$null
             $sw.Stop();Add-Result $name 'FAIL' ("timeout "+$timeoutSec+"s") $sw.ElapsedMilliseconds;return
         }
-        $p.Refresh();$rc=[int]$p.ExitCode;$sw.Stop()
+        $p.Refresh();$rc=[int]$p.ExitCode
+        try{$p.Dispose()}catch{};$p=$null
+        $sw.Stop()
         $stdoutText=if(Test-Path -LiteralPath $stdout){[IO.File]::ReadAllText($stdout)}else{''}
         $selfReportedFail=($stdoutText -match '(?m)^FAIL(?:ED)?:?\s')
         if($skipExitCodes -contains $rc){Add-Result $name 'SKIP' ("exit $rc - not applicable") $sw.ElapsedMilliseconds}
@@ -88,7 +92,10 @@ function Invoke-Step([string]$name,[string]$script,[string]$arguments='',[int]$t
         elseif($selfReportedFail){Add-Result $name 'FAIL' ("child reported FAIL (exit $rc)") $sw.ElapsedMilliseconds}
         else{Add-Result $name 'FAIL' ("exit $rc") $sw.ElapsedMilliseconds}
     }catch{
-        $sw.Stop();($_|Out-String)|Set-Content -LiteralPath $stderr -Encoding UTF8
+        $sw.Stop()
+        if($p){try{$p.Dispose()}catch{};$p=$null}
+        $orchestratorError=Join-Path $stepsDir ($name+'.orchestrator-error.txt')
+        try{($_|Out-String)|Set-Content -LiteralPath $orchestratorError -Encoding UTF8}catch{}
         Add-Result $name 'FAIL' $_.Exception.Message $sw.ElapsedMilliseconds
     }finally{if($p){try{$p.Dispose()}catch{}}}
 }
