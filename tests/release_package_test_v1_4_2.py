@@ -23,9 +23,17 @@ def sha_entries(rootdir):
 def verify_sha(rootdir):
  rows=sha_entries(rootdir)
  return bool(rows) and all((rootdir/rel).is_file() and sha(rootdir/rel)==digest for rel,digest in rows.items())
+GENERATED_TOP_LEVEL_DIRS={'.git','__pycache__','logs','oui-data','real-machine-results'}
+GENERATED_TOP_LEVEL_FILES={
+ 'BUILD_CHECKS_v1.4.2.json','RF-Network-Tool.targets.json','RF-Network-Tool.targets.txt',
+ 'RF-Network-Tool.device-history.json','RF-Network-Tool.discovery-targets.json','RF-Network-Tool.discovery-cache.json'
+}
 def is_excluded(rootdir,p):
  rel=p.relative_to(rootdir)
- return '.git' in rel.parts or '__pycache__' in rel.parts or p.suffix=='.pyc'
+ if any(part in {'.git','__pycache__'} for part in rel.parts): return True
+ if rel.parts and rel.parts[0] in GENERATED_TOP_LEVEL_DIRS: return True
+ if rel.as_posix() in GENERATED_TOP_LEVEL_FILES: return True
+ return p.suffix in {'.pyc','.tmp'}
 def expected_hash_files(rootdir):
  ex={'SHA256.txt',manifest_name}
  return {p.relative_to(rootdir).as_posix() for p in rootdir.rglob('*') if p.is_file() and p.relative_to(rootdir).as_posix() not in ex and not is_excluded(rootdir,p)}
