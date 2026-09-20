@@ -28,6 +28,8 @@ jobs:
         run: python tests/run_all_static_v1_4_2.py
       - name: Validate CI workflow contracts
         run: python tests/ci_workflow_contract_v1_4_2.py
+      - name: Ensure tests do not mutate tracked source
+        run: git diff --exit-code
 
   windows-runtime:
     name: Windows PS5.1 integration (${{ matrix.os }})
@@ -67,6 +69,8 @@ jobs:
     name: Reproducible release package
     needs: [static-contracts, windows-runtime]
     runs-on: ubuntu-24.04
+    env:
+      RFT_WINDOWS_RUNTIME_VERIFIED: '1'
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
