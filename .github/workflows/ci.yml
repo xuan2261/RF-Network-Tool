@@ -119,3 +119,78 @@ jobs:
           name: rf-network-tool-v1.4.2
           path: ci-artifacts/release/*.zip
           if-no-files-found: error
+
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download verified release candidates
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: rf-network-tool-v1.4.2
+          path: release-assets
+      - name: Build public checksum file
+        run: |
+          cd release-assets
+          sha256sum *.zip | sort > SHA256SUMS.txt
+          test "$(wc -l < SHA256SUMS.txt)" -eq 2
+      - name: Publish or refresh v1.4.2 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: v1.4.2
+        run: |
+          set -euo pipefail
+          expected=(
+            "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip"
+            "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip"
+            "SHA256SUMS.txt"
+          )
+          for f in "${expected[@]}"; do test -s "release-assets/$f"; done
+
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+            if [ "$release_sha" != "$GITHUB_SHA" ]; then
+              echo "Refusing to overwrite $RELEASE_TAG: tag resolves to $release_sha, current commit is $GITHUB_SHA" >&2
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" release-assets/* -R "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"               --title "RF & Network Diagnostic Tool v1.4.2 — Full QA / CI-E2E"               --notes-file RELEASE_NOTES_v1.4.2.md               --latest
+          else
+            gh release create "$RELEASE_TAG" release-assets/* -R "$GITHUB_REPOSITORY"               --target "$GITHUB_SHA"               --title "RF & Network Diagnostic Tool v1.4.2 — Full QA / CI-E2E"               --notes-file RELEASE_NOTES_v1.4.2.md               --latest
+          fi
+
+          gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"             --json tagName,isDraft,isPrerelease,assets,url > release-assets/release-view.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("release-assets/release-view.json")
+          d=json.loads(p.read_text(encoding="utf-8"))
+          names={a["name"] for a in d["assets"]}
+          expected={
+              "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip",
+              "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip",
+              "SHA256SUMS.txt",
+          }
+          missing=expected-names
+          assert d["tagName"]=="v1.4.2", d
+          assert d["isDraft"] is False, d
+          assert d["isPrerelease"] is False, d
+          assert not missing, f"Missing release assets: {sorted(missing)}"
+          print("RELEASE ASSET VERIFICATION PASSED:", ", ".join(sorted(expected)))
+          PY
+      - name: Upload release publication evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-publication-evidence
+          path: |
+            release-assets/SHA256SUMS.txt
+            release-assets/release-view.json
+          if-no-files-found: ignore

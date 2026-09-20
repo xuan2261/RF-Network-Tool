@@ -20,3 +20,22 @@ This release carries forward the v1.4.1 scan-row deduplication and Ping/Monitori
 A package built locally without hosted-Windows evidence records Windows runtime as `NOT YET VERIFIED`. The CI package job runs only after both hosted Windows lanes pass and writes `EXECUTION PASS` plus the GitHub run/SHA into the generated release manifest.
 
 Interactive desktop UI E2E must still be reported as `NOT YET VERIFIED` until the `rft-interactive` self-hosted workflow actually completes successfully.
+
+
+## Download and run
+
+For normal use, download **`RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip`** from the GitHub **Releases** page. Extract the ZIP to a writable folder, then launch **`START-RF-NETWORK-TOOL.vbs`** or **`RUN-PORTABLE.cmd`**.
+
+The **PROJECT.zip** asset contains the full source/tests/workflows and is intended for development or auditing rather than day-to-day use.
+
+The release also publishes **`SHA256SUMS.txt`** so the downloaded ZIP can be checked against the exact CI-produced asset.
+
+## Additional hardening in the release pipeline
+
+- malformed/stale IPC and worker restart/parent-death recovery are exercised by Windows chaos tests;
+- synthetic /24 scan and 128-target persistent PingWorker throughput are gated on Windows Server 2022 and 2025;
+- high-confidence secret/dangerous workflow patterns are audited;
+- release ZIPs receive GitHub build-provenance attestations and are verified before publication;
+- GitHub Releases publication runs only after the complete static + Windows + package chain has passed on a push to `main`.
+
+Full interactive WinForms UIAutomation remains **NOT YET VERIFIED** until a logged-in self-hosted Windows runner labeled `rft-interactive` executes that workflow successfully.
