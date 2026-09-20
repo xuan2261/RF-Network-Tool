@@ -62,7 +62,7 @@ function Invoke-PingBatch($Request) {
                 $completed++
             }
         }
-        foreach($j in @($jobs)){
+        foreach($j in $jobs.ToArray()){
             try {
                 $waitMs=$timeout+1500
                 if(-not $j.Task.Wait($waitMs)){throw "Timeout after ${timeout} ms"}
@@ -86,7 +86,7 @@ function Invoke-PingBatch($Request) {
 
     return [ordered]@{
         schemaVersion=1;sessionId=$SessionId;requestId=$requestId;kind=$kind;completedAt=(Get-Date).ToString('o');
-        requested=$targets.Count;completed=$completed;results=@($results)
+        requested=$targets.Count;completed=$completed;results=$results.ToArray()
     }
 }
 

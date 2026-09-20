@@ -4,6 +4,7 @@ import re, sys
 
 root = Path(__file__).resolve().parents[1]
 main = (root/'RF-Network-Tool-Portable.ps1').read_text(encoding='utf-8-sig')
+ping_worker = (root/'RF-Network-Tool-PingWorker.ps1').read_text(encoding='utf-8-sig')
 
 # Model the two failure modes seen in the Windows screenshots.
 def canonical_scan_ips(values):
@@ -51,6 +52,11 @@ checks={
     'monitor_pending_state': "'PENDING'" in main,
     'monitor_waiting_state': "'WAITING'" in main,
     'monitor_engine_error_state': "'ENGINE ERROR'" in main,
+
+    # Windows PowerShell 5.1 compatibility: New-Object List[object] must not be wrapped directly in @(...).
+    'ping_worker_list_enumeration_safe': 'foreach($j in $jobs.ToArray())' in ping_worker and 'results=$results.ToArray()' in ping_worker,
+    'evidence_list_enumeration_safe': 'return @($out)' not in main,
+    'monitor_history_list_enumeration_safe': 'events=@($script:MonitoringEvents)' not in main and 'events=$script:MonitoringEvents.ToArray()' in main,
 }
 
 failed=[k for k,v in checks.items() if not v]

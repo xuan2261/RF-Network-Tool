@@ -77,13 +77,13 @@
     },
     {
       "path": "RF-Network-Tool-PingWorker.ps1",
-      "size": 6187,
-      "sha256": "5e05349f44e5c5764214a65243f04c0bf0b1cc07a86d655e64d05592570d5e2c"
+      "size": 6201,
+      "sha256": "3f18d778b7280a2ce03839d9454e3a2c85fe2386d2ab7d8103f88b57280e1d42"
     },
     {
       "path": "RF-Network-Tool-Portable.ps1",
-      "size": 206751,
-      "sha256": "7a37ddff962cb0d1479d65ed0e61c433c9822669d6728ac7eeca13ad5ae326ae"
+      "size": 206800,
+      "sha256": "3f9d4108a073bc674b83bfb254fd5cc6f33d7a58295cebaf56fffef18888fca1"
     },
     {
       "path": "RF-Network-Tool-ScanWorker.ps1",
@@ -122,8 +122,8 @@
     },
     {
       "path": "tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1",
-      "size": 14949,
-      "sha256": "3fc1db22a1728bb82b2c6393dbadd0245787fe91a8cdd5fa5d43b1182f074f91"
+      "size": 14960,
+      "sha256": "22788b00b7c1775e6ffbd24cd37f8520a7456edfded909d645a34896a91a0408"
     },
     {
       "path": "tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1",
@@ -202,8 +202,8 @@
     },
     {
       "path": "tests/runtime_integrity_contract_v1_4_2.py",
-      "size": 2810,
-      "sha256": "8f66e56d352e3f3cebb2f0fb1e1af623acb7e186a14e0a52365e713aa43ec36f"
+      "size": 3362,
+      "sha256": "e6ec141a0f37cb897b2eb711a636fe9470f6420abe3902b022161efa101dcb40"
     },
     {
       "path": "tests/scan_state_contract_v1_3_1.py",

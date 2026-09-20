@@ -95,7 +95,7 @@ try{
   [IO.File]::WriteAllText($deepCfg,([ordered]@{schemaVersion=1;sessionId=$taskSession;runId=$deepRun;interfaceIndex=0;device=[ordered]@{IP='127.0.0.1';MAC='';Brand='';Model='';Type='This PC';Name='Loopback';OS='Windows'}}|ConvertTo-Json -Depth 6),(New-Object Text.UTF8Encoding($true)))
   & $taskWorker -Mode DEEP -ConfigFile $deepCfg -ResultFile $deepRes -SessionId $taskSession -RunId $deepRun -ParentPid $PID -ParentStartTicks $parentTicks -HeartbeatFile $deepHb
   Assert-True (Test-Path $deepRes) 'DEEP task result exists'
-  if(Test-Path $deepRes){$dr=[IO.File]::ReadAllText($deepRes)|ConvertFrom-Json;Assert-True ([bool]$dr.success) 'DEEP task success';Assert-True ($dr.deep -ne $null) 'DEEP payload present';Assert-True (@($dr.deep.Ports).Count -ge 10) 'DEEP common ports returned'}
+  if(Test-Path $deepRes){$dr=[IO.File]::ReadAllText($deepRes)|ConvertFrom-Json;Assert-True ([bool]$dr.success) 'DEEP task success';Assert-True ($dr.deep -ne $null) 'DEEP payload present';Assert-True (@($dr.deep.PortChecks).Count -ge 10) 'DEEP common port checks returned'}
 
   # Monitoring persistence contracts.
   $monEntries=@();1..50|ForEach-Object{$monEntries += [pscustomobject]@{Target="192.168.77.$_";Name="Monitor $_";Enabled=($_ % 2 -eq 0);IntervalSec=5;Alert=$false}}

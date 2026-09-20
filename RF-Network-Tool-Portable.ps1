@@ -1038,7 +1038,7 @@ function New-EvidenceRecord([string]$source,[string]$state,[string]$value='',[st
 
 function Get-ScanEvidenceRecords($scanItem,[string]$observedAt='') {
     $out=New-Object System.Collections.Generic.List[object]
-    if(-not $scanItem){return @($out)}
+    if(-not $scanItem){return $out.ToArray()}
     $now=$observedAt;if(-not $now){$now=[string](Get-ObjectPropertyValue $scanItem 'UpdatedAt' '')};if(-not $now){$now=(Get-Date).ToString('s')}
 
     $fast=[bool](Get-ObjectPropertyValue $scanItem 'IcmpFast' $false)
@@ -1066,7 +1066,7 @@ function Get-ScanEvidenceRecords($scanItem,[string]$observedAt='') {
     $neighborState=[string](Get-ObjectPropertyValue $scanItem 'NeighborState' 'Not observed')
     $neighborMac=[string](Get-ObjectPropertyValue $scanItem 'NeighborMAC' '')
     [void]$out.Add((New-EvidenceRecord 'Neighbor cache' $(if($neighbor){'PASS'}else{'NOT OBSERVED'}) $neighborMac $neighborState $now))
-    return @($out)
+    return $out.ToArray()
 }
 
 function Read-DiscoveryCacheRecords {
@@ -1108,7 +1108,7 @@ function Merge-EvidenceRecords([object[]]$sets) {
 
 function Get-StaticEvidenceRecords($device) {
     $out=New-Object System.Collections.Generic.List[object]
-    if(-not $device){return @($out)}
+    if(-not $device){return $out.ToArray()}
     $mac=Format-Mac ([string]$device.MAC)
     $mi=Get-MacCharacteristics $mac
     $vendor=Get-VendorFromMac $mac
@@ -1120,12 +1120,12 @@ function Get-StaticEvidenceRecords($device) {
         [void]$out.Add((New-EvidenceRecord 'IEEE OUI / MAC' 'NOT OBSERVED' $mac 'No vendor mapping available.' ''))
     }
     if([string]$device.NameSource -eq 'PING alias' -and $device.Name){[void]$out.Add((New-EvidenceRecord 'PING alias' 'PASS' ([string]$device.Name) 'User-defined alias; not a network-advertised hostname.' ''))}
-    return @($out)
+    return $out.ToArray()
 }
 
 function Get-DeepEvidenceRecords($deep) {
     $out=New-Object System.Collections.Generic.List[object]
-    if(-not $deep){return @($out)}
+    if(-not $deep){return $out.ToArray()}
     $pingState=if([int]$deep.Ping.Received -gt 0){'PASS'}else{'NO RESPONSE'}
     [void]$out.Add((New-EvidenceRecord 'Deep ICMP statistics' $pingState "$($deep.Ping.Received)/$($deep.Ping.Sent) replies" "loss=$($deep.Ping.LossPercent)% min/avg/max=$($deep.Ping.Min)/$($deep.Ping.Avg)/$($deep.Ping.Max) ms TTL=$($deep.Ping.TTL)" ''))
     $neighborState=if($deep.NeighborState -and $deep.NeighborState -notmatch 'Unknown|Not'){ 'PASS' } else { 'NOT OBSERVED' }
@@ -1136,7 +1136,7 @@ function Get-DeepEvidenceRecords($deep) {
     if($deep.SSDP -and ($deep.SSDP.Location -or $deep.SSDP.Server)){[void]$out.Add((New-EvidenceRecord 'SSDP direct probe' 'PASS' ([string]$deep.SSDP.Server) "ST=$($deep.SSDP.ST); LOCATION=$($deep.SSDP.Location)" ''))}else{[void]$out.Add((New-EvidenceRecord 'SSDP direct probe' 'NOT OBSERVED' '' 'No target-specific SSDP response during deep probe.' ''))}
     if($deep.UPnP){[void]$out.Add((New-EvidenceRecord 'UPnP description' 'PASS' ([string]$deep.UPnP.FriendlyName) "Manufacturer=$($deep.UPnP.Manufacturer); Model=$($deep.UPnP.ModelName) $($deep.UPnP.ModelNumber)" ''))}else{[void]$out.Add((New-EvidenceRecord 'UPnP description' 'NOT OBSERVED' '' 'No UPnP device description retrieved.' ''))}
     if($deep.NetBIOS){[void]$out.Add((New-EvidenceRecord 'NetBIOS deep probe' 'PASS' ([string]$deep.NetBIOS) 'NetBIOS data returned by nbtstat.' ''))}else{[void]$out.Add((New-EvidenceRecord 'NetBIOS deep probe' 'NOT OBSERVED' '' 'No NetBIOS detail collected (or SMB was not open).' ''))}
-    return @($out)
+    return $out.ToArray()
 }
 
 function New-EvidenceGrid {
@@ -1513,7 +1513,7 @@ function Load-MonitoringHistory {
 function Save-MonitoringHistory {
     try {
         while($script:MonitoringEvents.Count -gt $script:MonitoringMaxEvents){$script:MonitoringEvents.RemoveAt(0)}
-        $payload=[ordered]@{schemaVersion=1;maxEvents=$script:MonitoringMaxEvents;events=@($script:MonitoringEvents)}
+        $payload=[ordered]@{schemaVersion=1;maxEvents=$script:MonitoringMaxEvents;events=$script:MonitoringEvents.ToArray()}
         Write-TextAtomic $MonitoringHistoryFile (ConvertTo-Json -InputObject $payload -Depth 6)
     } catch {Write-RuntimeLog 'MONITOR-HISTORY-SAVE' ($_|Out-String)}
 }
