@@ -1,0 +1,87 @@
+name: RF Network Tool CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rft-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-contracts:
+    name: Static + deterministic contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compile Python tests
+        run: python -m compileall -q tests release_tools
+      - name: Run active static/model suite
+        run: python tests/run_all_static_v1_4_2.py
+      - name: Validate CI workflow contracts
+        run: python tests/ci_workflow_contract_v1_4_2.py
+
+  windows-runtime:
+    name: Windows PS5.1 integration (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Runtime integration on Windows PowerShell 5.1
+        shell: powershell
+        run: .\tests\WINDOWS_INTEGRATION_TEST_v1_4_2.ps1
+      - name: Install pinned PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+      - name: PSScriptAnalyzer gate
+        shell: powershell
+        run: .\tests\WINDOWS_LINT_GATE_v1_4_2.ps1
+      - name: Launcher diagnostic E2E
+        shell: powershell
+        run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
+      - name: Upload QA logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-${{ matrix.os }}
+          path: |
+            ci-artifacts/**
+            logs/**
+          if-no-files-found: ignore
+
+  package:
+    name: Reproducible release package
+    needs: [static-contracts, windows-runtime]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build release zips
+        run: python release_tools/build_release_v1_4_2.py
+      - name: Package integrity tests
+        run: python tests/release_package_test_v1_4_2.py
+      - name: Upload release candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf-network-tool-v1.4.2
+          path: |
+            ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip
+            ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip
+          if-no-files-found: error
