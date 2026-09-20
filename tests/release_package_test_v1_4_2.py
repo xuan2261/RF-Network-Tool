@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import hashlib,zipfile,json,sys
+import hashlib,os,zipfile,json,sys
 root=Path(__file__).resolve().parents[1]; out=root.parent
 portable=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE'
 pzip=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip'; zportable=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'
@@ -23,13 +23,19 @@ def sha_entries(rootdir):
 def verify_sha(rootdir):
  rows=sha_entries(rootdir)
  return bool(rows) and all((rootdir/rel).is_file() and sha(rootdir/rel)==digest for rel,digest in rows.items())
+def is_excluded(rootdir,p):
+ rel=p.relative_to(rootdir)
+ return '.git' in rel.parts or '__pycache__' in rel.parts or p.suffix=='.pyc'
 def expected_hash_files(rootdir):
  ex={'SHA256.txt',manifest_name}
- return {p.relative_to(rootdir).as_posix() for p in rootdir.rglob('*') if p.is_file() and p.relative_to(rootdir).as_posix() not in ex and '__pycache__' not in p.parts and p.suffix!='.pyc'}
+ return {p.relative_to(rootdir).as_posix() for p in rootdir.rglob('*') if p.is_file() and p.relative_to(rootdir).as_posix() not in ex and not is_excluded(rootdir,p)}
 def zip_top_folder(zp,expected):
  with zipfile.ZipFile(zp) as z:
   names=[x for x in z.namelist() if x and not x.endswith('/')]
   return bool(names) and all(x.startswith(expected+'/') for x in names)
+def zip_has_no_vcs_metadata(zp):
+ with zipfile.ZipFile(zp) as z:
+  return all('/.git/' not in x and not x.endswith('/.git') for x in z.namelist())
 vbs=(root/'START-RF-NETWORK-TOOL.vbs').read_bytes()
 cmds=[(root/x).read_bytes() for x in ('RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RUN-TESTS.cmd')]
 manifest=json.loads((root/manifest_name).read_text(encoding='utf-8')) if (root/manifest_name).is_file() else {}
@@ -43,11 +49,15 @@ checks={
  'project_sha_coverage':(root/'SHA256.txt').is_file() and set(sha_entries(root))==expected_hash_files(root),
  'portable_sha_coverage':portable.is_dir() and (portable/'SHA256.txt').is_file() and set(sha_entries(portable))==expected_hash_files(portable),
  'project_release_manifest_coverage':set(x['path'] for x in manifest.get('files',[]))==expected_hash_files(root),
+ 'project_sha_no_vcs_metadata':(root/'SHA256.txt').is_file() and all(not rel.startswith('.git/') for rel in sha_entries(root)),
+ 'project_release_manifest_no_vcs_metadata':all(not x.get('path','').startswith('.git/') for x in manifest.get('files',[])),
+ 'ci_manifest_windows_verified':(manifest.get('verification',{}).get('windowsRuntime','').startswith('EXECUTION PASS') if os.environ.get('RFT_WINDOWS_RUNTIME_VERIFIED')=='1' else manifest.get('verification',{}).get('windowsRuntime')=='NOT YET VERIFIED'),
  'project_zip_exists':pzip.is_file(),
  'portable_zip_exists':zportable.is_file(),
  'project_zip_crc':False,
  'portable_zip_crc':False,
  'project_zip_top_folder':pzip.is_file() and zip_top_folder(pzip,root.name),
+ 'project_zip_no_vcs_metadata':pzip.is_file() and zip_has_no_vcs_metadata(pzip),
  'portable_zip_top_folder':zportable.is_file() and zip_top_folder(zportable,portable.name),
  'no_pycache_project':not any('__pycache__' in p.parts or p.suffix=='.pyc' for p in root.rglob('*')),
  'portable_runtime_workers':all((portable/x).is_file() for x in ['RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1']),
