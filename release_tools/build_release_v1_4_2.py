@@ -52,8 +52,7 @@ for p in sorted(project.rglob('*')):
  if rel in {'SHA256.txt',manifest_name} or is_excluded(project,p): continue
  files.append({'path':rel,'size':p.stat().st_size,'sha256':sha(p)})
 ci_verified=os.environ.get('RFT_WINDOWS_RUNTIME_VERIFIED')=='1'
-ci_run_id=os.environ.get('GITHUB_RUN_ID','')
-ci_sha=os.environ.get('GITHUB_SHA','')
+source_revision=os.environ.get('RFT_SOURCE_REVISION',os.environ.get('GITHUB_SHA',''))
 manifest={
  'release':'v1.4.2 Full QA / CI-E2E',
  'projectFileCount':len(files),
@@ -64,8 +63,7 @@ manifest={
    'linuxStaticDeterministicSource':'PASS',
    'windowsRuntime':('EXECUTION PASS (hosted Windows matrix)' if ci_verified else 'NOT YET VERIFIED'),
    'githubActions':('EXECUTION PASS' if ci_verified else 'NOT YET VERIFIED'),
-   'githubActionsRunId':ci_run_id,
-   'githubActionsSha':ci_sha,
+   'sourceRevision':source_revision,
    'hostedWindowsGate':'windows-2022 + windows-2025: integration + PSScriptAnalyzer + diagnostic E2E',
    'interactiveGuiE2E':'NOT YET VERIFIED (requires self-hosted logged-in Windows runner labeled rft-interactive)',
    'windowsGate':'RUN-DIAGNOSTIC.cmd + RUN-TESTS.cmd + tests/WINDOWS_SMOKE_TEST_v1_4_2.md + tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1'
@@ -74,12 +72,24 @@ manifest={
 (project/manifest_name).write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
 write_sha_tree(project)
 # One top-level folder in each zip for clean extraction.
-for zpath,root in [(project_zip,project),(portable_zip,portable)]:
+# Normalize ZIP metadata so the same source revision produces byte-identical
+# archives across reruns regardless of checkout/file mtimes or runner identity.
+ZIP_EPOCH=(1980,1,1,0,0,0)
+def write_deterministic_zip(zpath,root):
  if zpath.exists():zpath.unlink()
  with zipfile.ZipFile(zpath,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
   base=root.name
   for p in sorted(root.rglob('*')):
-   if p.is_file() and not is_excluded(root,p):
-    z.write(p,Path(base)/p.relative_to(root))
+   if not p.is_file() or is_excluded(root,p): continue
+   arc=(Path(base)/p.relative_to(root)).as_posix()
+   info=zipfile.ZipInfo(arc,ZIP_EPOCH)
+   info.create_system=3
+   info.compress_type=zipfile.ZIP_DEFLATED
+   info.external_attr=(0o100644 << 16)
+   info.extra=b''
+   info.comment=b''
+   z.writestr(info,p.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=9)
+for zpath,root in [(project_zip,project),(portable_zip,portable)]:
+ write_deterministic_zip(zpath,root)
 print(project_zip)
 print(portable_zip)
