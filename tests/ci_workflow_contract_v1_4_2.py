@@ -26,6 +26,8 @@ checks={
  'ci_package_test':'release_package_test_v1_4_2.py' in ci,
  'ci_static_cleanliness':'Ensure tests do not mutate tracked source' in ci and 'git diff --exit-code' in ci,
  'ci_package_runtime_verified_env':"RFT_WINDOWS_RUNTIME_VERIFIED: '1'" in ci,
+ 'ci_package_stable_source_revision':"RFT_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}" in ci,
+ 'ci_package_byte_reproducibility':'Byte reproducibility test' in ci and 'reproducible_package_test_v1_4_2.py' in ci,
  'ci_release_artifacts_staged_in_workspace':'ci-artifacts/release/*.zip' in ci and 'Stage release candidates inside workspace' in ci,
  'ci_release_attestation':all(x in ci for x in ['actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6','id-token: write','attestations: write','gh attestation verify']),
  'ci_release_upload_no_parent_traversal':'../RF-Network-Tool-v1.4.2' not in ci.split('Upload release candidates',1)[-1],
