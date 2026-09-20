@@ -49,11 +49,40 @@ try {
           $normalizedRootName=Normalize-UiName ([string]$rootEl.Current.Name)
           Assert-True ($normalizedRootName -match '^RF Network Diagnostic Tool - Portable v1\.4\.2') 'Window title/version'
           $cond=New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::TabItem)
-          $items=$rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cond)
-          $names=@();foreach($x in $items){$names += [string]$x.Current.Name}
+          $tabWait=[Diagnostics.Stopwatch]::StartNew();$items=$null
+          while($tabWait.Elapsed.TotalSeconds -lt [Math]::Max(5,$TimeoutSec)){
+            $items=$rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cond)
+            if($items.Count -ge 5){break}
+            Start-Sleep -Milliseconds 200
+          }
+          $names=@();foreach($x in $items){$names += (Normalize-UiName ([string]$x.Current.Name))}
           $names|Set-Content -LiteralPath (Join-Path $artifactDir 'ui-tab-items.txt') -Encoding UTF8
-          foreach($expected in @('PING','RF / RJ45','NETWORK SCAN','MONITORING','HƯỚNG DẪN')){Assert-True ($names -contains $expected) "Tab present: $expected"}
-          foreach($x in $items){if($x.Current.Name -in @('PING','NETWORK SCAN','MONITORING','HƯỚNG DẪN')){try{$pat=$x.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern);$pat.Select();Start-Sleep -Milliseconds 100}catch{Write-Host ("Tab automation failed: "+$x.Current.Name+" :: "+$_.Exception.Message);[void]$fail.Add("Tab selectable: $($x.Current.Name)")}}}
+          if($items.Count -lt 5){
+            try{
+              $all=$rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+              $dump=New-Object System.Collections.Generic.List[string]
+              foreach($el in $all){
+                if($dump.Count -ge 400){break}
+                $type=try{[string]$el.Current.ControlType.ProgrammaticName}catch{''}
+                $name=try{Normalize-UiName ([string]$el.Current.Name)}catch{''}
+                $aid=try{[string]$el.Current.AutomationId}catch{''}
+                $cls=try{[string]$el.Current.ClassName}catch{''}
+                [void]$dump.Add(("type={0}`tname={1}`tautomationId={2}`tclass={3}" -f $type,$name,$aid,$cls))
+              }
+              $dump.ToArray()|Set-Content -LiteralPath (Join-Path $artifactDir 'ui-tree-dump.txt') -Encoding UTF8
+            }catch{}
+          }
+          foreach($expected in @('PING','RF / RJ45','NETWORK SCAN','MONITORING','HƯỚNG DẪN')){
+            $normalizedExpected=Normalize-UiName $expected
+            Assert-True ($names -contains $normalizedExpected) "Tab present: $expected"
+          }
+          foreach($x in $items){
+            $normalizedName=Normalize-UiName ([string]$x.Current.Name)
+            if($normalizedName -in @('PING','NETWORK SCAN','MONITORING',(Normalize-UiName 'HƯỚNG DẪN'))){
+              try{$pat=$x.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern);$pat.Select();Start-Sleep -Milliseconds 150}
+              catch{Write-Host ("Tab automation failed: "+$normalizedName+" :: "+$_.Exception.Message);[void]$fail.Add("Tab selectable: $normalizedName")}
+            }
+          }
           Assert-True (-not $p.HasExited) 'GUI survives tab navigation'
         }
       } finally {
