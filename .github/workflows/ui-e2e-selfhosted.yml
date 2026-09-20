@@ -1,0 +1,25 @@
+name: RF Network Tool Interactive UI E2E
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui-e2e:
+    name: WinForms interactive UI smoke
+    runs-on: [self-hosted, Windows, X64, rft-interactive]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify interactive desktop and run GUI E2E
+        shell: powershell
+        run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: winforms-e2e-evidence
+          path: ci-artifacts/**
+          if-no-files-found: ignore

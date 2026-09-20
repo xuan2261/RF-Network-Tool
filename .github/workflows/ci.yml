@@ -1,0 +1,95 @@
+name: RF Network Tool CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rft-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-contracts:
+    name: Static + deterministic contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+      - name: Compile Python tests
+        run: python -m compileall -q tests release_tools
+      - name: Run active static/model suite
+        run: python tests/run_all_static_v1_4_2.py
+      - name: Validate CI workflow contracts
+        run: python tests/ci_workflow_contract_v1_4_2.py
+      - name: Ensure tests do not mutate tracked source
+        run: git diff --exit-code
+
+  windows-runtime:
+    name: Windows PS5.1 integration (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Runtime integration on Windows PowerShell 5.1
+        shell: powershell
+        run: .\tests\WINDOWS_INTEGRATION_TEST_v1_4_2.ps1
+      - name: Install pinned PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+      - name: PSScriptAnalyzer gate
+        shell: powershell
+        run: .\tests\WINDOWS_LINT_GATE_v1_4_2.ps1
+      - name: Launcher diagnostic E2E
+        shell: powershell
+        run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
+      - name: Upload QA logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: qa-${{ matrix.os }}
+          path: |
+            ci-artifacts/**
+            logs/**
+          if-no-files-found: ignore
+
+  package:
+    name: Reproducible release package
+    needs: [static-contracts, windows-runtime]
+    runs-on: ubuntu-24.04
+    env:
+      RFT_WINDOWS_RUNTIME_VERIFIED: '1'
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+      - name: Build release zips
+        run: python release_tools/build_release_v1_4_2.py
+      - name: Package integrity tests
+        run: python tests/release_package_test_v1_4_2.py
+      - name: Stage release candidates inside workspace
+        run: |
+          mkdir -p ci-artifacts/release
+          cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip ci-artifacts/release/
+          cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip ci-artifacts/release/
+      - name: Upload release candidates
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rf-network-tool-v1.4.2
+          path: ci-artifacts/release/*.zip
+          if-no-files-found: error
