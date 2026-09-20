@@ -16,6 +16,8 @@ checks={
  'ci_launcher_e2e':'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly' in ci,
  'ci_package_needs_runtime':'needs: [static-contracts, windows-runtime]' in ci,
  'ci_package_test':'release_package_test_v1_4_2.py' in ci,
+ 'ci_static_cleanliness':'Ensure tests do not mutate tracked source' in ci and 'git diff --exit-code' in ci,
+ 'ci_package_runtime_verified_env':"RFT_WINDOWS_RUNTIME_VERIFIED: '1'" in ci,
  'ci_release_artifacts_staged_in_workspace':'ci-artifacts/release/*.zip' in ci and 'Stage release candidates inside workspace' in ci,
  'ci_release_upload_no_parent_traversal':'../RF-Network-Tool-v1.4.2' not in ci.split('Upload release candidates',1)[-1],
  'ci_artifacts_v7':ci.count('actions/upload-artifact@v7')>=2,
