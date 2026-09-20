@@ -25,6 +25,8 @@ checks={
  'ui_artifact':'winforms-e2e-evidence' in ui,
  'ui_script_isolated_sandbox':"RFT-v142-e2e-" in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig'),
  'ui_script_uses_uia':'System.Windows.Automation.AutomationElement' in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig'),
+ 'ui_capture_avoids_args_automatic_var':"[string]$args" not in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig') and "[string]$argumentString" in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig'),
+ 'ui_capture_forwards_argument_string':"$psi.Arguments=$argumentString" in (root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig'),
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items(): print(('PASS' if v else 'FAIL'),k)
