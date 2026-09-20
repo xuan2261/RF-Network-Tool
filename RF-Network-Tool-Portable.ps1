@@ -172,11 +172,11 @@ function Set-ClipboardTextSafe([string]$text, [string]$context='Clipboard') {
 try {
     [System.Windows.Forms.Application]::SetUnhandledExceptionMode([System.Windows.Forms.UnhandledExceptionMode]::CatchException)
     $script:ThreadExceptionHandler = [System.Threading.ThreadExceptionEventHandler]{
-        param($sender,$e)
+        param($source,$evt)
         if ($script:HandlingUiException) { return }
         $script:HandlingUiException = $true
         try {
-            $ex = if ($e -and $e.Exception) { $e.Exception } else { New-Object System.Exception('Unknown WinForms exception') }
+            $ex = if ($evt -and $evt.Exception) { $evt.Exception } else { New-Object System.Exception('Unknown WinForms exception') }
             Write-RuntimeLog 'UI-UNHANDLED' ($ex.ToString())
             [System.Windows.Forms.MessageBox]::Show("Ứng dụng vừa chặn một lỗi giao diện ngoài dự kiến.`r`n`r`n$($ex.Message)`r`n`r`nChi tiết: $RuntimeLogFile`r`n`r`nNếu lỗi lặp lại, hãy đóng và mở lại tool.",'RF Network Tool - Runtime Error','OK','Error') | Out-Null
         } catch { } finally { $script:HandlingUiException = $false }
@@ -186,11 +186,11 @@ try {
 
 try {
     $script:DomainExceptionHandler = [System.UnhandledExceptionEventHandler]{
-        param($sender,$e)
+        param($source,$evt)
         try {
-            $obj = $e.ExceptionObject
+            $obj = $evt.ExceptionObject
             $msg = if ($obj -is [System.Exception]) { $obj.ToString() } else { [string]$obj }
-            Write-RuntimeLog 'APPDOMAIN-UNHANDLED' ("Terminating=$($e.IsTerminating) `r`n$msg")
+            Write-RuntimeLog 'APPDOMAIN-UNHANDLED' ("Terminating=$($evt.IsTerminating) `r`n$msg")
         } catch { }
     }
     [System.AppDomain]::CurrentDomain.add_UnhandledException($script:DomainExceptionHandler)
@@ -546,9 +546,9 @@ function Process-UdpPackets {
 
             Add-Log $rfLog "UDP <- $sourceIp`:$($remote.Port) | $($bytes.Length) bytes | $ascii"
             $metrics = Try-ParseRfMetrics $ascii
-            if ($metrics.RSSI -ne $null -or $metrics.SNR -ne $null) {
-                $rssiText = if ($metrics.RSSI -ne $null) { "$($metrics.RSSI) dBm" } else { '---' }
-                $snrText  = if ($metrics.SNR  -ne $null) { "$($metrics.SNR) dB" } else { '---' }
+            if ($null -ne $metrics.RSSI -or $null -ne $metrics.SNR) {
+                $rssiText = if ($null -ne $metrics.RSSI) { "$($metrics.RSSI) dBm" } else { '---' }
+                $snrText  = if ($null -ne $metrics.SNR) { "$($metrics.SNR) dB" } else { '---' }
                 $lblRssi.Text = "RSSI : $rssiText    |    SNR : $snrText"
                 $lblRssi.ForeColor = [System.Drawing.Color]::ForestGreen
             } else {
@@ -1289,7 +1289,7 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
         } catch {& $showDeepError $_.Exception.Message;& $cleanupDeep}
     })
 
-    $f.Add_FormClosing({param($sender,$e);if($detailBusy){& $cleanupDeep}})
+    $f.Add_FormClosing({param($source,$evt);if($detailBusy){& $cleanupDeep}})
     $btnDeep.Add_Click({
         if($detailBusy){return}
         $detailBusy=$true;$btnDeep.Enabled=$false;$btnClose.Enabled=$false;$btnDeep.Text='Đang khởi động worker...'
@@ -2003,11 +2003,11 @@ function Invoke-TargetPing([string]$target) {
 }
 
 $gridPing.Add_CellContentClick({
-    param($sender,$e)
-    if ($e.RowIndex -lt 0 -or $e.ColumnIndex -lt 0) { return }
-    $row = $sender.Rows[$e.RowIndex]
+    param($source,$evt)
+    if ($evt.RowIndex -lt 0 -or $evt.ColumnIndex -lt 0) { return }
+    $row = $source.Rows[$evt.RowIndex]
     $target = [string]$row.Tag
-    $columnName = [string]$sender.Columns[$e.ColumnIndex].Name
+    $columnName = [string]$source.Columns[$evt.ColumnIndex].Name
 
     if ($columnName -eq 'PingAction') {
         Invoke-TargetPing $target
@@ -2018,7 +2018,7 @@ $gridPing.Add_CellContentClick({
         if ($script:TargetRows.ContainsKey($target)) {
             $displayName = [string]$script:TargetRows[$target].Alias
             $script:TargetRows.Remove($target)
-            $sender.Rows.RemoveAt($e.RowIndex)
+            $source.Rows.RemoveAt($evt.RowIndex)
             Save-Targets
             Remove-MonitorTarget $target
             Add-Log $pingLog "Đã xóa [$displayName] $target"
@@ -2027,17 +2027,17 @@ $gridPing.Add_CellContentClick({
 })
 
 $gridPing.Add_CellDoubleClick({
-    param($sender,$e)
-    if ($e.RowIndex -ge 0 -and $e.ColumnIndex -ge 0 -and $sender.Columns[$e.ColumnIndex].Name -eq 'Alias') {
-        $sender.CurrentCell = $sender.Rows[$e.RowIndex].Cells['Alias']
-        $sender.BeginEdit($true)
+    param($source,$evt)
+    if ($evt.RowIndex -ge 0 -and $evt.ColumnIndex -ge 0 -and $source.Columns[$evt.ColumnIndex].Name -eq 'Alias') {
+        $source.CurrentCell = $source.Rows[$evt.RowIndex].Cells['Alias']
+        $source.BeginEdit($true)
     }
 })
 
 $gridPing.Add_CellEndEdit({
-    param($sender,$e)
-    if ($e.RowIndex -lt 0 -or $sender.Columns[$e.ColumnIndex].Name -ne 'Alias') { return }
-    $row = $sender.Rows[$e.RowIndex]
+    param($source,$evt)
+    if ($evt.RowIndex -lt 0 -or $source.Columns[$evt.ColumnIndex].Name -ne 'Alias') { return }
+    $row = $source.Rows[$evt.RowIndex]
     $target = [string]$row.Tag
     if (-not $script:TargetRows.ContainsKey($target)) { return }
 
@@ -2572,8 +2572,8 @@ $miCopyIp=$ctxScan.Items.Add('Copy IP')
 $gridScan.ContextMenuStrip=$ctxScan
 $miDetail.Add_Click({if($gridScan.CurrentRow){$ai=Update-ScanAdapterDefaults;Show-DeviceDetails $gridScan.CurrentRow $ai}})
 $miCopyIp.Add_Click({try{if($gridScan.CurrentRow){[void](Set-ClipboardTextSafe ([string]$gridScan.CurrentRow.Cells['IP'].Value) 'Copy IP')}}catch{Write-RuntimeLog 'COPY-IP' ($_ | Out-String)}})
-$gridScan.Add_CellDoubleClick({param($sender,$e);if($e.RowIndex -ge 0){$ai=Update-ScanAdapterDefaults;Show-DeviceDetails $gridScan.Rows[$e.RowIndex] $ai}})
-$gridScan.Add_KeyDown({param($sender,$e);if($e.KeyCode -eq [Windows.Forms.Keys]::Enter -and $gridScan.CurrentRow){$e.SuppressKeyPress=$true;$ai=Update-ScanAdapterDefaults;Show-DeviceDetails $gridScan.CurrentRow $ai}})
+$gridScan.Add_CellDoubleClick({param($source,$evt);if($evt.RowIndex -ge 0){$ai=Update-ScanAdapterDefaults;Show-DeviceDetails $gridScan.Rows[$evt.RowIndex] $ai}})
+$gridScan.Add_KeyDown({param($source,$evt);if($evt.KeyCode -eq [Windows.Forms.Keys]::Enter -and $gridScan.CurrentRow){$evt.SuppressKeyPress=$true;$ai=Update-ScanAdapterDefaults;Show-DeviceDetails $gridScan.CurrentRow $ai}})
 
 function Update-ScanAdapterDefaults {
     try {
@@ -3221,8 +3221,8 @@ function Invoke-MonitorScheduler {
 }
 
 $gridMonitor.Add_CurrentCellDirtyStateChanged({if($gridMonitor.IsCurrentCellDirty){$gridMonitor.CommitEdit([Windows.Forms.DataGridViewDataErrorContexts]::Commit)|Out-Null}})
-$gridMonitor.Add_CellValueChanged({param($sender,$e);if($script:MonitoringGridUpdating){return};if($e.RowIndex -lt 0 -or $e.ColumnIndex -lt 0){return};$row=$sender.Rows[$e.RowIndex];$target=[string]$row.Tag;if(-not $script:MonitoringConfig.ContainsKey($target)){return};$name=[string]$sender.Columns[$e.ColumnIndex].Name;$cfg=$script:MonitoringConfig[$target];if($name -eq 'MonEnabled'){Set-MonitorEnabledState $target ([bool]$row.Cells['MonEnabled'].Value)}elseif($name -eq 'MonAlert'){$cfg.Alert=[bool]$row.Cells['MonAlert'].Value}elseif($name -eq 'MonInterval'){$cfg.IntervalSec=Get-MonitorInterval $row.Cells['MonInterval'].Value};Save-MonitoringConfig;Refresh-MonitorSummary})
-$gridMonitor.Add_DataError({param($sender,$e);$e.ThrowException=$false})
+$gridMonitor.Add_CellValueChanged({param($source,$evt);if($script:MonitoringGridUpdating){return};if($evt.RowIndex -lt 0 -or $evt.ColumnIndex -lt 0){return};$row=$source.Rows[$evt.RowIndex];$target=[string]$row.Tag;if(-not $script:MonitoringConfig.ContainsKey($target)){return};$name=[string]$source.Columns[$evt.ColumnIndex].Name;$cfg=$script:MonitoringConfig[$target];if($name -eq 'MonEnabled'){Set-MonitorEnabledState $target ([bool]$row.Cells['MonEnabled'].Value)}elseif($name -eq 'MonAlert'){$cfg.Alert=[bool]$row.Cells['MonAlert'].Value}elseif($name -eq 'MonInterval'){$cfg.IntervalSec=Get-MonitorInterval $row.Cells['MonInterval'].Value};Save-MonitoringConfig;Refresh-MonitorSummary})
+$gridMonitor.Add_DataError({param($source,$evt);$evt.ThrowException=$false})
 
 $btnMonitorSync.Add_Click({Sync-MonitoringWithTargets -Save;Refresh-MonitorTimelineGrid})
 $btnMonitorEnableAll.Add_Click({foreach($cfg in @($script:MonitoringConfig.Values)){Set-MonitorEnabledState ([string]$cfg.Target) $true};Save-MonitoringConfig;Refresh-MonitorGrid})
@@ -3567,10 +3567,10 @@ $btnOpenAppDir.Add_Click({
 
 $form.KeyPreview = $true
 $form.Add_KeyDown({
-    param($sender,$e)
-    if ($e.KeyCode -eq [System.Windows.Forms.Keys]::F1) {
+    param($source,$evt)
+    if ($evt.KeyCode -eq [System.Windows.Forms.Keys]::F1) {
         $tabs.SelectedTab = $tabHelp
-        $e.SuppressKeyPress = $true
+        $evt.SuppressKeyPress = $true
     }
 })
 
@@ -3609,7 +3609,7 @@ $form.Add_Shown({
     Add-Log $rfLog 'Tab RF UDP: nhập local port -> Start UDP. Packet nhận được sẽ hiện TEXT/HEX và tự dò RSSI/SNR.'
 })
 
-$form.Add_FormClosing({ param($sender,$e); try{$scanWorkerTimer.Stop()}catch{}; try{$pingWorkerTimer.Stop()}catch{}; try{$monitorTimer.Stop()}catch{}; try{$ouiTaskTimer.Stop()}catch{}; try{$ouiCacheTimer.Stop()}catch{}; Stop-ScanWorker $true; Stop-PingWorker; Stop-OuiTaskWorker; try{if($script:OuiCacheReader){$script:OuiCacheReader.Dispose();$script:OuiCacheReader=$null}}catch{}; try{$udpTimer.Stop()}catch{}; try{$timer.Stop()}catch{}; try{$discoveryTimer.Stop()}catch{}; Stop-DiscoveryWorker; Stop-UdpListener; Save-Targets; Save-MonitoringConfig; Save-MonitoringHistory; Save-DeviceHistory; Save-ScanHistory; try{if($monitorAlertTip){$monitorAlertTip.Dispose()}}catch{}; Remove-TransientRuntimeFiles })
+$form.Add_FormClosing({ param($source,$evt); try{$scanWorkerTimer.Stop()}catch{}; try{$pingWorkerTimer.Stop()}catch{}; try{$monitorTimer.Stop()}catch{}; try{$ouiTaskTimer.Stop()}catch{}; try{$ouiCacheTimer.Stop()}catch{}; Stop-ScanWorker $true; Stop-PingWorker; Stop-OuiTaskWorker; try{if($script:OuiCacheReader){$script:OuiCacheReader.Dispose();$script:OuiCacheReader=$null}}catch{}; try{$udpTimer.Stop()}catch{}; try{$timer.Stop()}catch{}; try{$discoveryTimer.Stop()}catch{}; Stop-DiscoveryWorker; Stop-UdpListener; Save-Targets; Save-MonitoringConfig; Save-MonitoringHistory; Save-DeviceHistory; Save-ScanHistory; try{if($monitorAlertTip){$monitorAlertTip.Dispose()}}catch{}; Remove-TransientRuntimeFiles })
 $form.Add_Shown({ Update-ScanHeaderLayout })
 Update-ScanHeaderLayout
 try { [void]$form.ShowDialog() }
