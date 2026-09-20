@@ -36,6 +36,14 @@ def normalized_zip(zp):
 
 with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
  tmp=Path(td); project=tmp/'RF-Network-Tool'; copy_project(project)
+ # Simulate a used/dirty workstation before release packaging. These files are
+ # generated at runtime or by local QA and must never enter a release archive.
+ (project/'BUILD_CHECKS_v1.4.2.json').write_text('{"local":true}',encoding='utf-8')
+ (project/'RF-Network-Tool.targets.json').write_text('{"private":true}',encoding='utf-8')
+ (project/'dirty.tmp').write_text('temporary',encoding='utf-8')
+ (project/'logs').mkdir(exist_ok=True); (project/'logs'/'runtime.log').write_text('private runtime log',encoding='utf-8')
+ (project/'oui-data').mkdir(exist_ok=True); (project/'oui-data'/'cache.txt').write_text('runtime cache',encoding='utf-8')
+ (project/'real-machine-results').mkdir(exist_ok=True); (project/'real-machine-results'/'machine-info.json').write_text('{"machine":"private"}',encoding='utf-8')
  p1,z1=build(project,111111)
  first=(sha(p1),sha(z1))
  manifest=json.loads((project/'RELEASE_MANIFEST_v1.4.2.json').read_text(encoding='utf-8'))
@@ -45,6 +53,19 @@ with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
   'project_zip_metadata_normalized':normalized_zip(p1),
   'portable_zip_metadata_normalized':normalized_zip(z1),
  }
+ with zipfile.ZipFile(p1) as z:
+  packaged=set(z.namelist())
+  prefix=project.name+'/'
+  forbidden={
+   prefix+'BUILD_CHECKS_v1.4.2.json',prefix+'RF-Network-Tool.targets.json',prefix+'dirty.tmp',
+   prefix+'logs/runtime.log',prefix+'oui-data/cache.txt',prefix+'real-machine-results/machine-info.json'
+  }
+  checks['project_zip_excludes_local_generated_artifacts']=not (forbidden & packaged)
+ manifest_files={x.get('path') for x in manifest.get('files',[])}
+ checks['manifest_excludes_local_generated_artifacts']=not ({
+  'BUILD_CHECKS_v1.4.2.json','RF-Network-Tool.targets.json','dirty.tmp','logs/runtime.log',
+  'oui-data/cache.txt','real-machine-results/machine-info.json'
+ } & manifest_files)
  perturb_mtimes(project)
  p2,z2=build(project,999999)
  second=(sha(p2),sha(z2))
