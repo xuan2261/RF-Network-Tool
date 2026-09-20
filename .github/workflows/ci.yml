@@ -3,6 +3,7 @@ name: RF Network Tool CI
 on:
   push:
     branches: [main]
+    tags: [v1.4.2]
   pull_request:
   workflow_dispatch:
 
@@ -62,6 +63,29 @@ jobs:
       - name: Launcher diagnostic E2E
         shell: powershell
         run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
+      - name: Real-machine qualification harness SAFE smoke
+        if: matrix.os == 'windows-2022'
+        shell: powershell
+        run: |
+          $winps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+          # Force the first pass through the harness installer path while the
+          # parent PowerShell still has a clean module path.
+          Get-InstalledModule PSScriptAnalyzer -AllVersions -ErrorAction SilentlyContinue |
+            ForEach-Object { Uninstall-Module -Name $_.Name -RequiredVersion $_.Version -Force -ErrorAction SilentlyContinue }
+
+          # Then reproduce the real-machine failure mode: Windows PowerShell
+          # is launched from a process whose PSModulePath is polluted by PS7.
+          $ps7Modules = Join-Path $env:ProgramFiles 'PowerShell\7\Modules'
+          $env:PSModulePath = $ps7Modules + ';' + $env:PSModulePath
+
+          Write-Host "SAFE harness stress pass 1/2 (installer path)"
+          & $winps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -AllowModuleInstall -NoZip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Write-Host "SAFE harness stress pass 2/2 (reuse installed analyzer)"
+          & $winps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -NoZip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload QA logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -70,6 +94,7 @@ jobs:
           path: |
             ci-artifacts/**
             logs/**
+            real-machine-results/**
           if-no-files-found: ignore
 
   package:
@@ -123,7 +148,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.4.2'
     needs: [package]
     runs-on: ubuntu-24.04
     permissions:
