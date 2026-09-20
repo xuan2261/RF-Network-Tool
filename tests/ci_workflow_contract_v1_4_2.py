@@ -16,6 +16,8 @@ checks={
  'ci_launcher_e2e':'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly' in ci,
  'ci_package_needs_runtime':'needs: [static-contracts, windows-runtime]' in ci,
  'ci_package_test':'release_package_test_v1_4_2.py' in ci,
+ 'ci_release_artifacts_staged_in_workspace':'ci-artifacts/release/*.zip' in ci and 'Stage release candidates inside workspace' in ci,
+ 'ci_release_upload_no_parent_traversal':'../RF-Network-Tool-v1.4.2' not in ci.split('Upload release candidates',1)[-1],
  'ci_artifacts_v4':ci.count('actions/upload-artifact@v4')>=2,
  'ci_no_continue_on_error':'continue-on-error:' not in ci,
  'ci_timeouts':ci.count('timeout-minutes:')>=3,
