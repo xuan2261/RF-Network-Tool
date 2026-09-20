@@ -19,7 +19,7 @@ checks={
  'orchestrator_lan_skip':'skipExitCodes' in ps and '@(3)' in ps,
  'orchestrator_clean_winps_modulepath':all(x in ps for x in ['Start-CleanWindowsPowerShell','Remove-Item Env:PSModulePath','PowerShellGet -MinimumVersion 2.2.5','PSScriptAnalyzer -RequiredVersion 1.25.0']),
  'orchestrator_child_fail_defense':all(x in ps for x in ['selfReportedFail',"child reported FAIL"]),
- 'e2e_uia_title_normalization':all(x in e2e for x in ['Normalize-UiName',"-replace '&',''",'^RF Network Diagnostic Tool - Portable v1\\.4\\.2']),
+ 'e2e_uia_title_normalization':all(x in e2e for x in ['Normalize-UiName',"-replace '&','' -replace '\\s+',' '",'^RF Network Diagnostic Tool - Portable v1\\.4\\.2']),
  'e2e_timeout_uses_argument_string':'Process timeout: $exe $argumentString' in e2e and 'Process timeout: $exe $args' not in e2e,
  'real_lan_private_only':'refusing to probe a public IPv4 subnet' in lan and 'Test-LocalSafeIPv4' in lan,
  'real_lan_not_applicable':'exit 3' in lan and 'no active physical private/link-local/CGNAT' in lan,
