@@ -67,14 +67,17 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: powershell
         run: |
-          $ps7Modules = Join-Path $env:ProgramFiles 'PowerShell\7\Modules'
-          $env:PSModulePath = $ps7Modules + ';' + $env:PSModulePath
           $winps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 
-          # Force the first pass through the harness installer path instead of
-          # reusing the module installed by the previous CI step.
+          # Force the first pass through the harness installer path while the
+          # parent PowerShell still has a clean module path.
           Get-InstalledModule PSScriptAnalyzer -AllVersions -ErrorAction SilentlyContinue |
             ForEach-Object { Uninstall-Module -Name $_.Name -RequiredVersion $_.Version -Force -ErrorAction SilentlyContinue }
+
+          # Then reproduce the real-machine failure mode: Windows PowerShell
+          # is launched from a process whose PSModulePath is polluted by PS7.
+          $ps7Modules = Join-Path $env:ProgramFiles 'PowerShell\7\Modules'
+          $env:PSModulePath = $ps7Modules + ';' + $env:PSModulePath
 
           Write-Host "SAFE harness stress pass 1/2 (installer path)"
           & $winps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -AllowModuleInstall -NoZip
