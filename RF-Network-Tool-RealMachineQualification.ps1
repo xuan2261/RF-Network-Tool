@@ -63,7 +63,12 @@ exit 1
     $p=$null
     try{
         $p=Start-CleanWindowsPowerShell ("-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$verify`"")
-        [void]$p.WaitForExit(30000);$p.Refresh();return ([int]$p.ExitCode -eq 0)
+        if(-not $p.WaitForExit(30000)){
+            try{$p.Kill()}catch{}
+            try{[void]$p.WaitForExit(5000)}catch{}
+            return $false
+        }
+        $p.Refresh();return ([int]$p.ExitCode -eq 0)
     }catch{return $false}
     finally{if($p){try{$p.Dispose()}catch{}}}
 }
