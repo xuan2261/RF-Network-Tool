@@ -55,6 +55,9 @@ jobs:
       - name: Launcher diagnostic E2E
         shell: powershell
         run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
+      - name: Hosted WinForms UI smoke E2E
+        shell: powershell
+        run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -TimeoutSec 20
       - name: Upload QA logs
         if: always()
         uses: actions/upload-artifact@v7
