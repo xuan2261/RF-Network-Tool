@@ -3,6 +3,7 @@ name: RF Network Tool CI
 on:
   push:
     branches: [main]
+    tags: [v1.4.2]
   pull_request:
   workflow_dispatch:
 
@@ -62,6 +63,10 @@ jobs:
       - name: Launcher diagnostic E2E
         shell: powershell
         run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
+      - name: Real-machine qualification harness SAFE smoke
+        if: matrix.os == 'windows-2022'
+        shell: powershell
+        run: .\RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -NoZip
       - name: Upload QA logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -70,6 +75,7 @@ jobs:
           path: |
             ci-artifacts/**
             logs/**
+            real-machine-results/**
           if-no-files-found: ignore
 
   package:
@@ -123,7 +129,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.4.2'
     needs: [package]
     runs-on: ubuntu-24.04
     permissions:
