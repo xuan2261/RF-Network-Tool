@@ -22,6 +22,7 @@ checks={
  'orchestrator_redirect_handle_release':'orchestrator-error.txt' in ps,
  'orchestrator_redirect_read_retry':all(x in ps for x in ['Read-TextFileWithRetry','Start-Sleep -Milliseconds 100','Read-TextFileWithRetry $stdout 10000']),
  'orchestrator_explicit_winps_module_path':all(x in ps for x in ['Get-CleanWindowsPowerShellModulePath','SpecialFolder]::MyDocuments','WindowsPowerShell\\Modules','System32\\WindowsPowerShell\\v1.0\\Modules','$env:PSModulePath=Get-CleanWindowsPowerShellModulePath']),
+ 'orchestrator_pssa_install_diagnostics':'psscriptanalyzer_install_diagnostics.txt' in ps and 'CleanPSModulePath=' in ps,
  'e2e_uia_title_normalization':all(x in e2e for x in ['Normalize-UiName',"-replace '&','' -replace '\\s+',' '",'^RF Network Diagnostic Tool - Portable v1\\.4\\.2']),
  'e2e_waits_for_tab_accessibility':all(x in e2e for x in ['$tabWait=[Diagnostics.Stopwatch]::StartNew()','$items.Count -ge 5','Start-Sleep -Milliseconds 200']),
  'e2e_ui_tree_evidence':all(x in e2e for x in ['ui-tree-dump.txt','ProgrammaticName','AutomationId','ClassName']),
