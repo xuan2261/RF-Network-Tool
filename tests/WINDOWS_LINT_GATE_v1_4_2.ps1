@@ -18,10 +18,13 @@ Import-Module $module.Path -Force
 $all=@()
 foreach($name in $runtime){$all += @(Invoke-ScriptAnalyzer -Path (Join-Path $root $name) -Recurse:$false)}
 $errors=@($all | Where-Object {$_.Severity -eq 'Error' -or $_.RuleName -eq 'ParseError'})
+$highSignalRules=@('PSAvoidAssignmentToAutomaticVariable','PSPossibleIncorrectComparisonWithNull')
+$highSignal=@($all | Where-Object {$highSignalRules -contains $_.RuleName})
 $reportDir=Join-Path $root 'ci-artifacts';New-Item -ItemType Directory -Path $reportDir -Force|Out-Null
 $all | Sort-Object ScriptName,Line,RuleName | Format-Table -AutoSize | Out-String -Width 240 | Set-Content -LiteralPath (Join-Path $reportDir 'PSScriptAnalyzer.txt') -Encoding UTF8
-Write-Host ("PSScriptAnalyzer {0}: diagnostics={1}, gate-errors={2}" -f $module.Version,@($all).Count,@($errors).Count)
+Write-Host ("PSScriptAnalyzer {0}: diagnostics={1}, gate-errors={2}, high-signal={3}" -f $module.Version,@($all).Count,@($errors).Count,@($highSignal).Count)
 if($errors){$errors|Format-Table -AutoSize|Out-Host;[void]$fail.Add('PSScriptAnalyzer errors')}
+if($highSignal){$highSignal|Format-Table -AutoSize|Out-Host;[void]$fail.Add('PSScriptAnalyzer high-signal warnings')}
 if($fail.Count){Write-Host ('FAILED: '+($fail -join ', ')) -ForegroundColor Red;exit 1}
 Write-Host 'ALL POWERSHELL PARSER/LINT GATES PASSED' -ForegroundColor Green
 exit 0
