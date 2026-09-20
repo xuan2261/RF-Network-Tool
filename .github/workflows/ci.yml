@@ -53,6 +53,12 @@ jobs:
       - name: PSScriptAnalyzer gate
         shell: powershell
         run: .\tests\WINDOWS_LINT_GATE_v1_4_2.ps1
+      - name: Chaos and recovery qualification
+        shell: powershell
+        run: .\tests\WINDOWS_CHAOS_TEST_v1_4_2.ps1
+      - name: Synthetic performance qualification
+        shell: powershell
+        run: .\tests\WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1
       - name: Launcher diagnostic E2E
         shell: powershell
         run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
@@ -70,6 +76,10 @@ jobs:
     name: Reproducible release package
     needs: [static-contracts, windows-runtime]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     env:
       RFT_WINDOWS_RUNTIME_VERIFIED: '1'
     timeout-minutes: 10
@@ -87,6 +97,22 @@ jobs:
           mkdir -p ci-artifacts/release
           cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip ci-artifacts/release/
           cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip ci-artifacts/release/
+      - name: Attest release candidates
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: 'ci-artifacts/release/*.zip'
+      - name: Verify release attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in ci-artifacts/release/*.zip; do
+            ok=0
+            for attempt in 1 2 3 4 5; do
+              if gh attestation verify "$f" -R "$GITHUB_REPOSITORY"; then ok=1; break; fi
+              sleep 3
+            done
+            test "$ok" -eq 1
+          done
       - name: Upload release candidates
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
