@@ -30,7 +30,8 @@ checks={
  'real_lan_identity':all(x in lan for x in ['no duplicate result IPs','local IPv4 discovered exactly once','runId matches']),
  'ci_harness_smoke':'Real-machine qualification harness SAFE smoke' in ci and 'RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -NoZip' in ci,
  'ci_harness_polluted_modulepath_fixture':all(x in ci for x in ["PowerShell\\7\\Modules","$env:PSModulePath = $ps7Modules + ';' + $env:PSModulePath"]),
- 'ci_harness_stress_twice':all(x in ci for x in ['1..2 | ForEach-Object','SAFE harness stress pass $_/2']),
+ 'ci_harness_stress_twice':all(x in ci for x in ['SAFE harness stress pass 1/2','SAFE harness stress pass 2/2']),
+ 'ci_harness_installer_path':all(x in ci for x in ['Uninstall-Module','-Mode Safe -AllowModuleInstall -NoZip','installer path','reuse installed analyzer']),
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():print(('PASS' if v else 'FAIL'),k)
