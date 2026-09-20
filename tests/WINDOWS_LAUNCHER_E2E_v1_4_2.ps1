@@ -4,7 +4,7 @@ $sourceRoot=Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $artifactDir=Join-Path $sourceRoot 'ci-artifacts';New-Item -ItemType Directory -Path $artifactDir -Force|Out-Null
 $fail=New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$c,[string]$n){if($c){Write-Host "PASS $n" -ForegroundColor Green}else{Write-Host "FAIL $n" -ForegroundColor Red;[void]$fail.Add($n)}}
-function Normalize-UiName([string]$value){if($null -eq $value){return ''};return (($value -replace '&','' -replace '\\s+',' ').Trim())}
+function Normalize-UiName([string]$value){if($null -eq $value){return ''};return (($value -replace '&','' -replace '\s+',' ').Trim())}
 function Invoke-Captured([string]$exe,[string]$argumentString,[int]$timeoutMs=20000){
   $psi=New-Object Diagnostics.ProcessStartInfo;$psi.FileName=$exe;$psi.Arguments=$argumentString;$psi.UseShellExecute=$false;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true;$psi.CreateNoWindow=$true
   $p=New-Object Diagnostics.Process;$p.StartInfo=$psi;[void]$p.Start();if(-not $p.WaitForExit($timeoutMs)){try{$p.Kill()}catch{};throw "Process timeout: $exe $argumentString"};$o=$p.StandardOutput.ReadToEnd();$e=$p.StandardError.ReadToEnd();$rc=$p.ExitCode;$p.Dispose();return [pscustomobject]@{ExitCode=$rc;Out=$o;Err=$e}
