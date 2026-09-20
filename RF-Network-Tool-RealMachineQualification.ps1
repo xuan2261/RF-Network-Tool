@@ -40,6 +40,33 @@ function Sanitize-Text([string]$text){
     }
     return $text
 }
+function Start-CleanWindowsPowerShell([string]$argumentLine,[string]$stdoutPath='',[string]$stderrPath=''){
+    $oldModulePath=[Environment]::GetEnvironmentVariable('PSModulePath','Process')
+    try{
+        Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
+        $params=@{FilePath=$psExe;ArgumentList=$argumentLine;WindowStyle='Hidden';PassThru=$true}
+        if($stdoutPath){$params.RedirectStandardOutput=$stdoutPath}
+        if($stderrPath){$params.RedirectStandardError=$stderrPath}
+        return Start-Process @params
+    }finally{
+        if($null -eq $oldModulePath){Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue}
+        else{$env:PSModulePath=$oldModulePath}
+    }
+}
+function Test-PSScriptAnalyzerClean{
+    $verify=Join-Path $runDir 'verify-psscriptanalyzer.ps1'
+    @'
+$m=Get-Module -ListAvailable PSScriptAnalyzer | Where-Object {$_.Version -eq [version]'1.25.0'} | Select-Object -First 1
+if($m){exit 0}
+exit 1
+'@ | Set-Content -LiteralPath $verify -Encoding UTF8
+    $p=$null
+    try{
+        $p=Start-CleanWindowsPowerShell ("-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$verify`"")
+        [void]$p.WaitForExit(30000);$p.Refresh();return ([int]$p.ExitCode -eq 0)
+    }catch{return $false}
+    finally{if($p){try{$p.Dispose()}catch{}}}
+}
 function Invoke-Step([string]$name,[string]$script,[string]$arguments='',[int]$timeoutSec=180,[int[]]$skipExitCodes=@()){
     if(-not(Test-Path -LiteralPath $script)){Add-Result $name 'FAIL' ("Missing: $script");return}
     $stdout=Join-Path $stepsDir ($name+'.stdout.txt')
@@ -48,14 +75,17 @@ function Invoke-Step([string]$name,[string]$script,[string]$arguments='',[int]$t
     if($arguments){$argLine+=" $arguments"}
     $sw=[Diagnostics.Stopwatch]::StartNew();$p=$null
     try{
-        $p=Start-Process -FilePath $psExe -ArgumentList $argLine -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+        $p=Start-CleanWindowsPowerShell $argLine $stdout $stderr
         if(-not $p.WaitForExit($timeoutSec*1000)){
             try{$p.Kill()}catch{}
             $sw.Stop();Add-Result $name 'FAIL' ("timeout "+$timeoutSec+"s") $sw.ElapsedMilliseconds;return
         }
         $p.Refresh();$rc=[int]$p.ExitCode;$sw.Stop()
-        if($rc -eq 0){Add-Result $name 'PASS' 'exit 0' $sw.ElapsedMilliseconds}
-        elseif($skipExitCodes -contains $rc){Add-Result $name 'SKIP' ("exit $rc - not applicable") $sw.ElapsedMilliseconds}
+        $stdoutText=if(Test-Path -LiteralPath $stdout){[IO.File]::ReadAllText($stdout)}else{''}
+        $selfReportedFail=($stdoutText -match '(?m)^FAIL(?:ED)?:?\s')
+        if($skipExitCodes -contains $rc){Add-Result $name 'SKIP' ("exit $rc - not applicable") $sw.ElapsedMilliseconds}
+        elseif($rc -eq 0 -and -not $selfReportedFail){Add-Result $name 'PASS' 'exit 0' $sw.ElapsedMilliseconds}
+        elseif($selfReportedFail){Add-Result $name 'FAIL' ("child reported FAIL (exit $rc)") $sw.ElapsedMilliseconds}
         else{Add-Result $name 'FAIL' ("exit $rc") $sw.ElapsedMilliseconds}
     }catch{
         $sw.Stop();($_|Out-String)|Set-Content -LiteralPath $stderr -Encoding UTF8
@@ -63,17 +93,59 @@ function Invoke-Step([string]$name,[string]$script,[string]$arguments='',[int]$t
     }finally{if($p){try{$p.Dispose()}catch{}}}
 }
 function Ensure-PSScriptAnalyzer{
-    $m=Get-Module -ListAvailable PSScriptAnalyzer | Where-Object {$_.Version -eq [version]'1.25.0'} | Select-Object -First 1
-    if($m){return $true}
+    if(Test-PSScriptAnalyzerClean){return $true}
     if(-not $AllowModuleInstall){return $false}
     $sw=[Diagnostics.Stopwatch]::StartNew()
+    $installer=Join-Path $runDir 'install-psscriptanalyzer.ps1'
+    $stdout=Join-Path $stepsDir 'psscriptanalyzer_install.stdout.txt'
+    $stderr=Join-Path $stepsDir 'psscriptanalyzer_install.stderr.txt'
+    @'
+$ErrorActionPreference='Stop'
+[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$oldPolicy=$null
+try{
     try{
-        [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery
-        $m=Get-Module -ListAvailable PSScriptAnalyzer | Where-Object {$_.Version -eq [version]'1.25.0'} | Select-Object -First 1
+        $repo=Get-PSRepository -Name PSGallery -ErrorAction Stop
+        $oldPolicy=[string]$repo.InstallationPolicy
+        if($oldPolicy -ne 'Trusted'){Set-PSRepository -Name PSGallery -InstallationPolicy Trusted}
+    }catch{}
+    $nuget=Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+    if(-not $nuget -or $nuget.Version -lt [version]'2.8.5.201'){
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force -ErrorAction Stop | Out-Null
+    }
+    $psg=Get-Module -ListAvailable PowerShellGet | Sort-Object Version -Descending | Select-Object -First 1
+    if(-not $psg -or $psg.Version -lt [version]'2.2.5'){
+        Install-Module -Name PowerShellGet -MinimumVersion 2.2.5 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
+        exit 42
+    }
+    Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
+    $m=Get-Module -ListAvailable PSScriptAnalyzer | Where-Object {$_.Version -eq [version]'1.25.0'} | Select-Object -First 1
+    if(-not $m){throw 'PSScriptAnalyzer 1.25.0 was not found after installation.'}
+    exit 0
+}finally{
+    if($oldPolicy -and $oldPolicy -ne 'Trusted'){try{Set-PSRepository -Name PSGallery -InstallationPolicy $oldPolicy}catch{}}
+}
+'@ | Set-Content -LiteralPath $installer -Encoding UTF8
+    try{
+        $attempt=0
+        do{
+            $attempt++
+            if(Test-Path $stdout){Remove-Item $stdout -Force -ErrorAction SilentlyContinue}
+            if(Test-Path $stderr){Remove-Item $stderr -Force -ErrorAction SilentlyContinue}
+            $p=$null
+            try{
+                $p=Start-CleanWindowsPowerShell ("-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$installer`"") $stdout $stderr
+                if(-not $p.WaitForExit(180000)){try{$p.Kill()}catch{};throw 'PSScriptAnalyzer installer timed out.'}
+                $p.Refresh();$rc=[int]$p.ExitCode
+            }finally{if($p){try{$p.Dispose()}catch{}}}
+            if($rc -eq 42 -and $attempt -lt 3){continue}
+            if($rc -ne 0){throw ("PSScriptAnalyzer installer exit "+$rc)}
+            break
+        }while($attempt -lt 3)
         $sw.Stop()
-        if($m){Add-Result 'psscriptanalyzer_install' 'PASS' '1.25.0 available' $sw.ElapsedMilliseconds;return $true}
-        Add-Result 'psscriptanalyzer_install' 'FAIL' '1.25.0 still unavailable' $sw.ElapsedMilliseconds;return $false
+        if(Test-PSScriptAnalyzerClean){Add-Result 'psscriptanalyzer_install' 'PASS' 'PSScriptAnalyzer 1.25.0 available via clean Windows PowerShell module path' $sw.ElapsedMilliseconds;return $true}
+        Add-Result 'psscriptanalyzer_install' 'FAIL' 'Installer completed but PSScriptAnalyzer 1.25.0 is unavailable.' $sw.ElapsedMilliseconds
+        return $false
     }catch{
         $sw.Stop();Add-Result 'psscriptanalyzer_install' 'FAIL' $_.Exception.Message $sw.ElapsedMilliseconds;return $false
     }
