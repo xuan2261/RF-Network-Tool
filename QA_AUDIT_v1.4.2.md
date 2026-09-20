@@ -23,6 +23,7 @@ Verification infrastructure and runtime-regression audit for RF-Network-Tool v1.
 4. **Artifact upload path** — `upload-artifact` rejects parent traversal (`../`). Release candidates are now staged under `ci-artifacts/release/`.
 5. **Full-project package contamination** — audit of a real Actions artifact found `.git` metadata inside the project ZIP. The release builder and package tests now exclude/reject VCS metadata.
 6. **Generated verification metadata** — `BUILD_CHECKS_v1.4.2.json`, `RELEASE_MANIFEST_v1.4.2.json`, and `SHA256.txt` are generated outputs and are no longer tracked in Git, preventing stale hashes/status from living in source control.
+7. **Correctness-oriented analyzer warnings** — WinForms callbacks no longer shadow the automatic `$Sender` variable, null comparisons place `$null` on the left, and both `PSAvoidAssignmentToAutomaticVariable` and `PSPossibleIncorrectComparisonWithNull` are now release-blocking lint rules.
 
 ## Verification status
 
