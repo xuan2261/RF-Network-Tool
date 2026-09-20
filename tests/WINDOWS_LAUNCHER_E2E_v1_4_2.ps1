@@ -1,4 +1,4 @@
-param([switch]$DiagnosticOnly,[int]$TimeoutSec=15)
+﻿param([switch]$DiagnosticOnly,[int]$TimeoutSec=15)
 $ErrorActionPreference='Stop'
 $sourceRoot=Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $artifactDir=Join-Path $sourceRoot 'ci-artifacts';New-Item -ItemType Directory -Path $artifactDir -Force|Out-Null
@@ -26,12 +26,25 @@ try {
       $psi=New-Object Diagnostics.ProcessStartInfo;$psi.FileName=$psExe;$psi.Arguments="-STA -NoProfile -ExecutionPolicy Bypass -File `"$launcher`"";$psi.UseShellExecute=$false
       $p=New-Object Diagnostics.Process;$p.StartInfo=$psi;[void]$p.Start()
       try{
-        $sw=[Diagnostics.Stopwatch]::StartNew();$handle=[IntPtr]::Zero
-        while($sw.Elapsed.TotalSeconds -lt $TimeoutSec -and -not $p.HasExited){$p.Refresh();if($p.MainWindowHandle -ne 0){$handle=[IntPtr]$p.MainWindowHandle;break};Start-Sleep -Milliseconds 150}
-        Assert-True ($handle -ne [IntPtr]::Zero) 'Main WinForms window created'
-        if($handle -ne [IntPtr]::Zero){
-          $rootEl=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
-          Assert-True ($rootEl.Current.Name -match 'RF & Network Diagnostic Tool.*v1\.4\.2') 'Window title/version'
+        # PowerShell.exe can expose a host/console handle as MainWindowHandle. Discover the actual
+        # top-level WinForms window by UIAutomation ProcessId + title instead.
+        $desktop=[System.Windows.Automation.AutomationElement]::RootElement
+        $windowCond=New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Window)
+        $sw=[Diagnostics.Stopwatch]::StartNew();$rootEl=$null;$observed=New-Object System.Collections.Generic.List[string]
+        while($sw.Elapsed.TotalSeconds -lt $TimeoutSec -and -not $p.HasExited -and $null -eq $rootEl){
+          $windows=$desktop.FindAll([System.Windows.Automation.TreeScope]::Children,$windowCond)
+          foreach($candidate in $windows){
+            if([int]$candidate.Current.ProcessId -ne [int]$p.Id){continue}
+            $windowName=[string]$candidate.Current.Name
+            if($windowName -and -not $observed.Contains($windowName)){[void]$observed.Add($windowName)}
+            if($windowName -match '^RF & Network Diagnostic Tool - Portable v1\.4\.2'){ $rootEl=$candidate;break }
+          }
+          if($null -eq $rootEl){Start-Sleep -Milliseconds 150}
+        }
+        $observed.ToArray()|Set-Content -LiteralPath (Join-Path $artifactDir 'ui-top-level-windows.txt') -Encoding UTF8
+        Assert-True ($null -ne $rootEl) 'Main WinForms window discovered via UIAutomation'
+        if($null -ne $rootEl){
+          Assert-True ($rootEl.Current.Name -match '^RF & Network Diagnostic Tool - Portable v1\.4\.2') 'Window title/version'
           $cond=New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::TabItem)
           $items=$rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cond)
           $names=@();foreach($x in $items){$names += [string]$x.Current.Name}
@@ -41,7 +54,14 @@ try {
           Assert-True (-not $p.HasExited) 'GUI survives tab navigation'
         }
       } finally {
-        if(-not $p.HasExited){[void]$p.CloseMainWindow();if(-not $p.WaitForExit(5000)){try{$p.Kill()}catch{};[void]$fail.Add('Graceful GUI shutdown')}}
+        if(-not $p.HasExited){
+          $closed=$false
+          if($null -ne $rootEl){
+            try{$wp=$rootEl.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern);$wp.Close();$closed=$true}catch{}
+          }
+          if(-not $closed){try{[void]$p.CloseMainWindow()}catch{}}
+          if(-not $p.WaitForExit(5000)){try{$p.Kill()}catch{};[void]$fail.Add('Graceful GUI shutdown')}
+        }
         try{$p.Dispose()}catch{}
       }
     }
