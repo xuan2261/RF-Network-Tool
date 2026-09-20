@@ -40,10 +40,32 @@ function Sanitize-Text([string]$text){
     }
     return $text
 }
+function Get-CleanWindowsPowerShellModulePath{
+    $paths=New-Object System.Collections.Generic.List[string]
+    try{
+        $docs=[Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)
+        if($docs){[void]$paths.Add((Join-Path $docs 'WindowsPowerShell\Modules'))}
+    }catch{}
+    if($env:ProgramFiles){[void]$paths.Add((Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'))}
+    [void]$paths.Add((Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'))
+    return (($paths.ToArray()|Where-Object {$_}|Select-Object -Unique) -join ';')
+}
+function Read-TextFileWithRetry([string]$path,[int]$timeoutMs=10000){
+    $sw=[Diagnostics.Stopwatch]::StartNew();$last=$null
+    while($sw.ElapsedMilliseconds -lt $timeoutMs){
+        try{return [IO.File]::ReadAllText($path)}catch{
+            $last=$_
+            if($_.Exception.InnerException -isnot [IO.IOException] -and $_.Exception -isnot [IO.IOException]){throw}
+            Start-Sleep -Milliseconds 100
+        }
+    }
+    if($last){throw $last}
+    throw "Timed out reading $path"
+}
 function Start-CleanWindowsPowerShell([string]$argumentLine,[string]$stdoutPath='',[string]$stderrPath=''){
     $oldModulePath=[Environment]::GetEnvironmentVariable('PSModulePath','Process')
     try{
-        Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
+        $env:PSModulePath=Get-CleanWindowsPowerShellModulePath
         $params=@{FilePath=$psExe;ArgumentList=$argumentLine;WindowStyle='Hidden';PassThru=$true}
         if($stdoutPath){$params.RedirectStandardOutput=$stdoutPath}
         if($stderrPath){$params.RedirectStandardError=$stderrPath}
@@ -90,7 +112,7 @@ function Invoke-Step([string]$name,[string]$script,[string]$arguments='',[int]$t
         $p.Refresh();$rc=[int]$p.ExitCode
         try{$p.Dispose()}catch{};$p=$null
         $sw.Stop()
-        $stdoutText=if(Test-Path -LiteralPath $stdout){[IO.File]::ReadAllText($stdout)}else{''}
+        $stdoutText=if(Test-Path -LiteralPath $stdout){Read-TextFileWithRetry $stdout 10000}else{''}
         $selfReportedFail=($stdoutText -match '(?m)^FAIL(?:ED)?:?\s')
         if($skipExitCodes -contains $rc){Add-Result $name 'SKIP' ("exit $rc - not applicable") $sw.ElapsedMilliseconds}
         elseif($rc -eq 0 -and -not $selfReportedFail){Add-Result $name 'PASS' 'exit 0' $sw.ElapsedMilliseconds}
@@ -156,6 +178,15 @@ try{
         }while($attempt -lt 3)
         $sw.Stop()
         if(Test-PSScriptAnalyzerClean){Add-Result 'psscriptanalyzer_install' 'PASS' 'PSScriptAnalyzer 1.25.0 available via clean Windows PowerShell module path' $sw.ElapsedMilliseconds;return $true}
+        $diag=Join-Path $stepsDir 'psscriptanalyzer_install_diagnostics.txt'
+        try{
+            @(
+                ('CleanPSModulePath='+(Get-CleanWindowsPowerShellModulePath)),
+                ('MyDocuments='+[Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)),
+                ('ProgramFiles='+$env:ProgramFiles),
+                ('SystemRoot='+$env:SystemRoot)
+            )|Set-Content -LiteralPath $diag -Encoding UTF8
+        }catch{}
         Add-Result 'psscriptanalyzer_install' 'FAIL' 'Installer completed but PSScriptAnalyzer 1.25.0 is unavailable.' $sw.ElapsedMilliseconds
         return $false
     }catch{
