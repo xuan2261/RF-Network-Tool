@@ -69,7 +69,11 @@ jobs:
         run: |
           $ps7Modules = Join-Path $env:ProgramFiles 'PowerShell\7\Modules'
           $env:PSModulePath = $ps7Modules + ';' + $env:PSModulePath
-          .\RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -NoZip
+          1..2 | ForEach-Object {
+            Write-Host "SAFE harness stress pass $_/2"
+            .\RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -NoZip
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Upload QA logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
