@@ -17,6 +17,6 @@ The v1.4.2 branch now contains both verification infrastructure and narrowly sco
 
 ## Residual review debt
 
-PSScriptAnalyzer still reports non-blocking warnings/information, primarily empty catch blocks, positional parameters, naming conventions, and WinForms callback parameters named `$sender`. Error/ParseError findings are zero. Automatic-variable and null-comparison warning classes were manually triaged; no additional executed runtime defect was demonstrated from those warnings in the current revision.
+PSScriptAnalyzer still reports non-blocking style/maintainability warnings and information, primarily empty catch blocks, positional parameters, and naming conventions. Error/ParseError findings are zero. The correctness-oriented `PSAvoidAssignmentToAutomaticVariable` and `PSPossibleIncorrectComparisonWithNull` classes are explicitly release-blocking and must remain zero.
 
 The remaining material verification gap is interactive WinForms functional E2E on a logged-in self-hosted Windows runner.
