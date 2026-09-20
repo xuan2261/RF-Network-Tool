@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Compile Python tests
@@ -38,7 +38,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Runtime integration on Windows PowerShell 5.1
         shell: powershell
         run: .\tests\WINDOWS_INTEGRATION_TEST_v1_4_2.ps1
@@ -55,7 +55,7 @@ jobs:
         run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
       - name: Upload QA logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qa-${{ matrix.os }}
           path: |
@@ -69,8 +69,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Build release zips
@@ -83,7 +83,7 @@ jobs:
           cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip ci-artifacts/release/
           cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip ci-artifacts/release/
       - name: Upload release candidates
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rf-network-tool-v1.4.2
           path: ci-artifacts/release/*.zip
