@@ -1,28 +1,115 @@
-name: RF Network Tool Interactive UI E2E
+name: RF Network Tool Physical Qualification
 
 on:
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact 40-character commit SHA to qualify
+        required: true
+        type: string
+      interface_index:
+        description: Optional physical adapter InterfaceIndex; blank = auto-detect
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: rft-physical-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  ui-e2e:
-    name: WinForms interactive UI smoke
+  physical-qualification:
+    name: WinForms + real-LAN physical qualification
     runs-on: [self-hosted, Windows, X64, rft-interactive]
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      RFT_EXPECTED_SHA: ${{ inputs.expected_sha }}
+      RFT_INTERFACE_INDEX: ${{ inputs.interface_index }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Exact revision guard
+        shell: powershell
+        run: |
+          $actual=(git rev-parse HEAD).Trim().ToLowerInvariant()
+          $expected=([string]$env:RFT_EXPECTED_SHA).Trim().ToLowerInvariant()
+          if($expected -notmatch '^[0-9a-f]{40}$'){throw 'expected_sha must be an exact 40-character commit SHA.'}
+          if($actual -ne $expected){throw "Revision mismatch: checkout=$actual expected=$expected"}
+          New-Item -ItemType Directory -Path .\ci-artifacts\physical-safe -Force | Out-Null
+          $actual | Set-Content -LiteralPath .\ci-artifacts\physical-safe\qualification-revision.txt -Encoding ASCII
+
       - name: Interactive desktop preflight
         shell: powershell
         run: .\tests\WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1
-      - name: Verify interactive desktop and run GUI E2E
+
+      - name: Run full physical qualification
         shell: powershell
-        run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1
-      - name: Upload E2E evidence
+        run: |
+          $winps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $invokeArgs=@(
+            '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+            '-File','.\RF-Network-Tool-RealMachineQualification.ps1',
+            '-Mode','Full','-AllowModuleInstall','-NoZip'
+          )
+          if(-not [string]::IsNullOrWhiteSpace($env:RFT_INTERFACE_INDEX)){
+            if($env:RFT_INTERFACE_INDEX -notmatch '^\d+$'){throw 'interface_index must be a positive numeric InterfaceIndex.'}
+            $invokeArgs += @('-InterfaceIndex',$env:RFT_INTERFACE_INDEX)
+          }
+          & $winps @invokeArgs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+
+      - name: Stage safe evidence and assert required physical gates
+        if: always()
+        shell: powershell
+        run: |
+          $safeDir=Join-Path $PWD 'ci-artifacts\physical-safe'
+          New-Item -ItemType Directory -Path $safeDir -Force | Out-Null
+          $summary=Get-ChildItem -LiteralPath .\real-machine-results -Filter summary.json -File -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if(-not $summary){throw 'Physical qualification summary.json was not produced.'}
+          $data=[IO.File]::ReadAllText($summary.FullName) | ConvertFrom-Json
+          $gui=$data.results | Where-Object {$_.name -eq 'interactive_gui_e2e'} | Select-Object -First 1
+          $lan=$data.results | Where-Object {$_.name -eq 'real_lan_fast_balanced'} | Select-Object -First 1
+          $actual=(git rev-parse HEAD).Trim().ToLowerInvariant()
+          $safe=[ordered]@{
+            schemaVersion=1
+            sourceRevision=$actual
+            mode=[string]$data.mode
+            interactiveGui=if($gui){[string]$gui.status}else{'MISSING'}
+            realLanFastBalanced=if($lan){[string]$lan.status}else{'MISSING'}
+            pass=[int]$data.pass
+            fail=[int]$data.fail
+            skip=[int]$data.skip
+          }
+          $safe | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $safeDir 'physical-qualification-summary.json') -Encoding UTF8
+          if(Test-Path -LiteralPath .\ci-artifacts\ui-tab-items.txt){
+            Copy-Item -LiteralPath .\ci-artifacts\ui-tab-items.txt -Destination (Join-Path $safeDir 'ui-tab-items.txt') -Force
+          }
+          if([string]$data.mode -ne 'Full'){throw "Expected Full mode, got $($data.mode)"}
+          if(-not $gui -or [string]$gui.status -ne 'PASS'){throw 'interactive_gui_e2e must PASS.'}
+          if(-not $lan -or [string]$lan.status -ne 'PASS'){throw 'real_lan_fast_balanced must PASS; SKIP is not release qualification.'}
+          if([int]$data.fail -ne 0){throw "Physical qualification recorded $($data.fail) failure(s)."}
+          if(-not (Test-Path -LiteralPath (Join-Path $safeDir 'ui-tab-items.txt'))){throw 'ui-tab-items.txt evidence is missing.'}
+          Write-Host 'PHYSICAL QUALIFICATION REQUIRED GATES PASSED'
+
+      - name: Remove raw physical-network evidence
+        if: always()
+        shell: powershell
+        run: |
+          Remove-Item -LiteralPath .\real-machine-results -Recurse -Force -ErrorAction SilentlyContinue
+          if(Test-Path -LiteralPath .\ci-artifacts){
+            Get-ChildItem -LiteralPath .\ci-artifacts -Force |
+              Where-Object {$_.Name -ne 'physical-safe'} |
+              Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload sanitized physical evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: winforms-e2e-evidence
-          path: ci-artifacts/**
-          if-no-files-found: ignore
+          name: physical-qualification-evidence
+          path: ci-artifacts/physical-safe/**
+          if-no-files-found: warn
