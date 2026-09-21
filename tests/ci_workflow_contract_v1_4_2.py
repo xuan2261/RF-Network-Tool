@@ -14,7 +14,7 @@ checks={
  'ci_static_job':'static-contracts:' in ci and 'ubuntu-24.04' in ci and 'run_all_static_v1_4_2.py' in ci,
  'ci_actionlint_pinned':all(x in ci for x in ["ACTIONLINT_VERSION: '1.7.12'","ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'",'rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}']),
  'ci_actionlint_checksum_verified':all(x in ci for x in ['sha256sum -c -','tar -xzf', '"$RUNNER_TEMP/actionlint" -color']),
- 'ci_actionlint_https_only':all(x in ci for x in ["--proto '=https'",'--tlsv1.2']),
+ 'ci_actionlint_https_only':all(x in ci for x in ["--proto '=https'","--proto-redir '=https'",'--tlsv1.2']),
  'ci_actionlint_selfhosted_label':all(x in actionlint_cfg for x in ['self-hosted-runner:','labels:','rft-interactive']),
  'ci_actionlint_shell_fixes':'for _ in 1 2 3 4 5; do' in ci and 'sha256sum -- *.zip' in ci,
  'ci_windows_matrix':"os: [windows-2022, windows-2025]" in ci,
