@@ -4,6 +4,7 @@ import re,sys
 root=Path(__file__).resolve().parents[1]
 ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 ui=(root/'.github/workflows/ui-e2e-selfhosted.yml').read_text(encoding='utf-8')
+actionlint_cfg=(root/'.github/actionlint.yaml').read_text(encoding='utf-8')
 lint=(root/'tests/WINDOWS_LINT_GATE_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 e2e=(root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 checks={
@@ -14,6 +15,8 @@ checks={
  'ci_actionlint_pinned':all(x in ci for x in ["ACTIONLINT_VERSION: '1.7.12'","ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'",'rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}']),
  'ci_actionlint_checksum_verified':all(x in ci for x in ['sha256sum -c -','tar -xzf', '"$RUNNER_TEMP/actionlint" -color']),
  'ci_actionlint_https_only':all(x in ci for x in ["--proto '=https'",'--tlsv1.2']),
+ 'ci_actionlint_selfhosted_label':all(x in actionlint_cfg for x in ['self-hosted-runner:','labels:','rft-interactive']),
+ 'ci_actionlint_shell_fixes':'for _ in 1 2 3 4 5; do' in ci and 'sha256sum -- *.zip' in ci,
  'ci_windows_matrix':"os: [windows-2022, windows-2025]" in ci,
  'ci_ps51_integration':'WINDOWS_INTEGRATION_TEST_v1_4_2.ps1' in ci and 'shell: powershell' in ci,
  'ci_psscriptanalyzer_pinned':'PSScriptAnalyzer -RequiredVersion 1.25.0' in ci,
