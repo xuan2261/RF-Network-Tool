@@ -29,8 +29,13 @@ try{
     Assert-True ([bool]$s.complete -and -not [string]$s.error) 'FAST synthetic /24 completes cleanly'
     Assert-True ([int]$s.total -eq 254) 'FAST synthetic /24 covers 254 targets'
     Assert-True (-not [bool]$s.metrics.RetryEnabled) 'FAST synthetic /24 retry remains disabled'
+    $hasIpv6Snapshot=$null -ne $s.PSObject.Properties['ipv6Neighbors']
+    $hasIpv6Count=$null -ne $s.metrics.PSObject.Properties['IPv6NeighborCount']
+    Assert-True $hasIpv6Snapshot 'FAST synthetic /24 exposes IPv6 neighbor snapshot'
+    Assert-True $hasIpv6Count 'FAST synthetic /24 exposes IPv6 neighbor metric'
+    if($hasIpv6Snapshot -and $hasIpv6Count){Assert-True ([int]$s.metrics.IPv6NeighborCount -eq @($s.ipv6Neighbors).Count) 'IPv6 neighbor metric matches snapshot'}
     Assert-True ($elapsed -le $ScanBudgetMs) "FAST synthetic /24 <= ${ScanBudgetMs}ms"
-    $report.scan=[ordered]@{targets=[int]$s.total;elapsedMs=$elapsed;budgetMs=$ScanBudgetMs;online=[int]$s.online;seen=[int]$s.seen;effectivePingConcurrency=[int]$s.metrics.EffectivePingConcurrency;effectiveArpConcurrency=[int]$s.metrics.EffectiveArpConcurrency}
+    $report.scan=[ordered]@{targets=[int]$s.total;elapsedMs=$elapsed;budgetMs=$ScanBudgetMs;online=[int]$s.online;seen=[int]$s.seen;ipv6Neighbors=$(if($hasIpv6Snapshot){@($s.ipv6Neighbors).Count}else{0});effectivePingConcurrency=[int]$s.metrics.EffectivePingConcurrency;effectiveArpConcurrency=[int]$s.metrics.EffectiveArpConcurrency}
   }
   $ipc=Join-Path $tmp 'ping';New-Item -ItemType Directory -Path $ipc -Force|Out-Null
   $session='perf-'+[guid]::NewGuid().ToString('N');$parentTicks=[long](Get-Process -Id $PID).StartTime.Ticks
