@@ -352,8 +352,8 @@ try {
 
     # PASS 5: passive IPv6 Neighbor Discovery snapshot on the selected interface.
     # Never enumerate the IPv6 address space; only report entries already observed by Windows NDP.
-    if(Test-Cancelled){$phase='cancelled';Write-State $true $true '';exit 0}
-    $phase='ipv6-neighbor-snapshot';$done=0;Write-State $false $false ''
+    if(Test-Cancelled){$phase='cancelled';Write-State -complete $true -cancelled $true -errorMessage '';exit 0}
+    $phase='ipv6-neighbor-snapshot';$done=0;Write-State -complete $false -cancelled $false -errorMessage ''
     try {
         $ipv6Map=@{}
         if(Get-Command -Name Get-NetNeighbor -ErrorAction SilentlyContinue){
@@ -390,7 +390,7 @@ try {
         $ipv6NeighborError=$_.Exception.Message
         Write-WorkerLog -message ('IPv6 NDP snapshot failed: '+$ipv6NeighborError)
     }
-    $done=@($ipv6Neighbors).Count;Write-State $false $false ''
+    $done=@($ipv6Neighbors).Count;Write-State -complete $false -cancelled $false -errorMessage ''
 
     $phase='done';$done=$total;Write-State $true $false ''
     $discoveredCount=@($results.Values | Where-Object {$_.Status -ne 'Unknown'}).Count
