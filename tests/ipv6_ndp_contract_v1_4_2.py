@@ -23,7 +23,7 @@ checks={
         'IPv6NeighborCount=@($ipv6Neighbors).Count' in worker
         and 'IPv6NeighborError=$ipv6NeighborError' in worker,
     'worker_ipv6_nonfatal_boundary':
-        "Write-WorkerLog ('IPv6 NDP snapshot failed: '+$ipv6NeighborError)" in worker
+        "Write-WorkerLog -message ('IPv6 NDP snapshot failed: '+$ipv6NeighborError)" in worker
         and '$ipv6Neighbors=@()' in worker,
     'worker_no_ipv6_neighbor_mutation':
         all(x not in worker for x in ['New-NetNeighbor','Set-NetNeighbor','New-NetIPAddress','Set-NetIPAddress']),
