@@ -37,6 +37,30 @@ def normalized_zip(zp):
 
 with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
  tmp=Path(td); project=tmp/'RF-Network-Tool'; copy_project(project)
+ dirty_files={
+  f'BUILD_CHECKS_v{version}.json':'{"local":true}',
+  'BUILD_CHECKS_v0.0.0.json':'{"stale":true}',
+  'RELEASE_MANIFEST_v0.0.0.json':'{"stale":true}',
+  'RF-Network-Tool.targets.json':'{"private":true}',
+  'RF-Network-Tool.targets.txt':'private',
+  'RF-Network-Tool.device-history.json':'{"private":true}',
+  'RF-Network-Tool.discovery-targets.json':'{"private":true}',
+  'RF-Network-Tool.discovery-cache.json':'{"private":true}',
+  'RF-Network-Tool.scan-history.json':'{"private":true}',
+  'RF-Network-Tool.monitoring.json':'{"private":true}',
+  'RF-Network-Tool.monitoring-history.json':'{"private":true}',
+  'RF-Network-Tool.oui-prefix-cache.v1.tsv':'001122\tPrivate Vendor',
+  'dirty.tmp':'temporary',
+ }
+ for rel,data in dirty_files.items():(project/rel).write_text(data,encoding='utf-8')
+ dirty_dirs={
+  'logs/runtime.log':'private runtime log',
+  'oui-data/cache.txt':'private runtime cache',
+  'real-machine-results/machine-info.json':'{"machine":"private"}',
+  'ci-artifacts/ui-tab-items.txt':'private qualification evidence',
+ }
+ for rel,data in dirty_dirs.items():
+  p=project/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(data,encoding='utf-8')
  p1,z1=build(project,111111)
  first=(sha(p1),sha(z1))
  manifest=json.loads((project/f'RELEASE_MANIFEST_{tag}.json').read_text(encoding='utf-8'))
@@ -46,6 +70,12 @@ with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
   'project_zip_metadata_normalized':normalized_zip(p1),
   'portable_zip_metadata_normalized':normalized_zip(z1),
  }
+ forbidden=set(dirty_files)|set(dirty_dirs)
+ with zipfile.ZipFile(p1) as z:
+  packaged={x[len(project.name)+1:] for x in z.namelist() if x.startswith(project.name+'/')}
+  checks['project_zip_excludes_local_generated_artifacts']=not (forbidden & packaged)
+ manifest_files={x.get('path') for x in manifest.get('files',[])}
+ checks['manifest_excludes_local_generated_artifacts']=not (forbidden & manifest_files)
  perturb_mtimes(project)
  p2,z2=build(project,999999)
  second=(sha(p2),sha(z2))
