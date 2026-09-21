@@ -75,6 +75,9 @@ jobs:
       - name: Launcher diagnostic E2E
         shell: powershell
         run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
+      - name: IPv6/NDP read-only readiness
+        shell: powershell
+        run: .\tests\WINDOWS_IPV6_NDP_READINESS_v1_4_2.ps1
       - name: Machine cleanliness fail-closed qualification
         shell: powershell
         run: .\tests\WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1
