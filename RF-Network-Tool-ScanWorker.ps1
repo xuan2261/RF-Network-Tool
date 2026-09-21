@@ -338,7 +338,7 @@ try {
                 $_.IPAddress -and $targetSet.ContainsKey([string]$_.IPAddress) -and $_.LinkLayerAddress -and $_.LinkLayerAddress -ne '00-00-00-00-00-00' -and $_.State -notin @('Unreachable','Incomplete')
             })
             foreach($n in $neighbors){
-                $ip=[string]$n.IPAddress;$mac=Format-Mac ([string]$n.LinkLayerAddress)
+                $ip=[string]$n.IPAddress;$mac=Format-Mac -mac ([string]$n.LinkLayerAddress)
                 if(-not $mac){continue}
                 $x=Get-OrCreateResult $ip
                 if(-not $x.MAC){$x.MAC=$mac}
@@ -356,13 +356,13 @@ try {
     $phase='ipv6-neighbor-snapshot';$done=0;Write-State $false $false ''
     try {
         $ipv6Map=@{}
-        if(Get-Command Get-NetNeighbor -ErrorAction SilentlyContinue){
-            $neighbors6=@(Get-NetNeighbor -AddressFamily IPv6 -InterfaceIndex $interfaceIndex -ErrorAction Stop | Where-Object {
+        if(Get-Command -Name Get-NetNeighbor -ErrorAction SilentlyContinue){
+            $neighbors6=@(Get-NetNeighbor -AddressFamily IPv6 -InterfaceIndex $interfaceIndex -ErrorAction Stop | Where-Object -FilterScript {
                 $_.IPAddress -and $_.LinkLayerAddress -and $_.LinkLayerAddress -ne '00-00-00-00-00-00' -and $_.State -notin @('Unreachable','Incomplete')
             })
             foreach($n in $neighbors6){
                 $ip=[string]$n.IPAddress
-                $mac=Format-Mac ([string]$n.LinkLayerAddress)
+                $mac=Format-Mac -mac ([string]$n.LinkLayerAddress)
                 if(-not $mac){continue}
                 try {
                     $parsed=[Net.IPAddress]::Parse($ip)
@@ -378,17 +378,17 @@ try {
                         Evidence='Windows IPv6 neighbor cache (passive NDP)'
                     }
                 } catch {
-                    Write-WorkerLog ('Ignored invalid IPv6 neighbor entry: '+$ip)
+                    Write-WorkerLog -message ('Ignored invalid IPv6 neighbor entry: '+$ip)
                 }
             }
         }
-        $ipv6Neighbors=@($ipv6Map.Values | Sort-Object IP)
+        $ipv6Neighbors=@($ipv6Map.Values | Sort-Object -Property IP)
         $ipv6NeighborError=''
-        Write-WorkerLog "IPv6 NDP snapshot observed=$(@($ipv6Neighbors).Count) interface=$interfaceIndex"
+        Write-WorkerLog -message "IPv6 NDP snapshot observed=$(@($ipv6Neighbors).Count) interface=$interfaceIndex"
     } catch {
         $ipv6Neighbors=@()
         $ipv6NeighborError=$_.Exception.Message
-        Write-WorkerLog ('IPv6 NDP snapshot failed: '+$ipv6NeighborError)
+        Write-WorkerLog -message ('IPv6 NDP snapshot failed: '+$ipv6NeighborError)
     }
     $done=@($ipv6Neighbors).Count;Write-State $false $false ''
 
