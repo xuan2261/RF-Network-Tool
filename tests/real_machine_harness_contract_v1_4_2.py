@@ -8,6 +8,7 @@ lan=(root/'tests/WINDOWS_REAL_LAN_TEST_v1_4_2.ps1').read_text(encoding='utf-8-si
 ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 e2e=(root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 clean=(root/'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1').read_text(encoding='utf-8-sig')
+clean_test=(root/'tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 checks={
  'wrapper_safe_default':'set "MODE=%~1"' in cmd and 'set "MODE=SAFE"' in cmd,
  'wrapper_gui_optin':'-Mode Gui -AllowModuleInstall' in cmd,
@@ -21,6 +22,8 @@ checks={
  'cleanliness_runtime_tokens':all(x in clean for x in ['RF-Network-Tool-Launcher.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1']),
  'cleanliness_temp_prefixes':all(x in clean for x in ['RFT-v142-test-','RFT-v142-chaos-','RFT-v142-perf-','RFT-v142-e2e-','RFT-real-lan-']),
  'cleanliness_state_removed':all(x in clean for x in ['Remove-StateFile','finally{','Unsupported machine-cleanliness state schema.']) and 'Remove-Item -LiteralPath $cleanlinessState' in ps,
+ 'cleanliness_failure_path_test':all(x in clean_test for x in ['Dirty baseline fails closed','Post-run temp leak fails closed','Clean post-run assertion succeeds','ALL WINDOWS MACHINE CLEANLINESS TESTS PASSED']),
+ 'ci_cleanliness_failure_path':'Machine cleanliness fail-closed qualification' in ci and 'WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1' in ci,
  'orchestrator_gui_gate':'WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1' in ps and "Mode -in @('Gui','Full')" in ps,
  'orchestrator_lan_skip':'skipExitCodes' in ps and '@(3)' in ps,
  'orchestrator_clean_winps_modulepath':all(x in ps for x in ['Start-CleanWindowsPowerShell','Remove-Item Env:PSModulePath','PowerShellGet -MinimumVersion 2.2.5','PSScriptAnalyzer -RequiredVersion 1.25.0']),
