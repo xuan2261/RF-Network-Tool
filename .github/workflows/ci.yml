@@ -140,9 +140,11 @@ jobs:
           set -euo pipefail
           version="$(tr -d '\r\n' < VERSION)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid VERSION: $version" >&2; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=rf-network-tool-v$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "artifact_name=rf-network-tool-v$version"
+          } >> "$GITHUB_OUTPUT"
       - name: Build release zips
         run: python release_tools/build_release.py
       - name: Package integrity tests
@@ -200,8 +202,10 @@ jobs:
             echo "Tag/version mismatch: tag=$GITHUB_REF_NAME VERSION=$version expected=$expected_tag" >&2
             exit 1
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$expected_tag" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "tag=$expected_tag"
+          } >> "$GITHUB_OUTPUT"
       - name: Download verified release candidates
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
