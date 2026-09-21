@@ -7,6 +7,7 @@ runtime=[
  'RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-TaskWorker.ps1',
  'START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RUN-TESTS.cmd',
  'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1',
+ 'tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1',
  'release_tools/build_release_v1_4_2.py','.github/actionlint.yaml','.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml'
 ]
 secret_patterns={
