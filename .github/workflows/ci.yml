@@ -24,6 +24,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.13'
+      - name: Lint GitHub Actions workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=1.7.12
+          archive=/tmp/actionlint_${version}_linux_amd64.tar.gz
+          url="https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 "$url" -o "$archive"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C /tmp actionlint
+          /tmp/actionlint -color
       - name: Compile Python tests
         run: python -m compileall -q tests release_tools
       - name: Run active static/model suite
@@ -86,6 +97,10 @@ jobs:
           Write-Host "SAFE harness stress pass 2/2 (reuse installed analyzer)"
           & $winps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -NoZip
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Runner cleanliness smoke
+        if: always()
+        shell: powershell
+        run: .\tests\WINDOWS_RUNNER_CLEANLINESS_v1_4_2.ps1 -Phase Post -EvidencePath ".\ci-artifacts\runner-cleanliness-${{ matrix.os }}.json"
       - name: Upload QA logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
