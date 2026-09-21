@@ -133,6 +133,8 @@ jobs:
         run: python release_tools/build_release_v1_4_2.py
       - name: Package integrity tests
         run: python tests/release_package_test_v1_4_2.py
+      - name: Release SBOM integrity tests
+        run: python tests/release_sbom_test_v1_4_2.py
       - name: Byte reproducibility test
         run: python tests/reproducible_package_test_v1_4_2.py
       - name: Stage release candidates inside workspace
@@ -140,10 +142,22 @@ jobs:
           mkdir -p ci-artifacts/release
           cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip ci-artifacts/release/
           cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip ci-artifacts/release/
+          cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.spdx.json ci-artifacts/release/
+          cp ../RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.spdx.json ci-artifacts/release/
       - name: Attest release candidates
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: 'ci-artifacts/release/*.zip'
+      - name: Attest project ZIP SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: 'ci-artifacts/release/RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip'
+          sbom-path: 'ci-artifacts/release/RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.spdx.json'
+      - name: Attest portable ZIP SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: 'ci-artifacts/release/RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'
+          sbom-path: 'ci-artifacts/release/RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.spdx.json'
       - name: Verify release attestations
         env:
           GH_TOKEN: ${{ github.token }}
@@ -156,11 +170,21 @@ jobs:
             done
             test "$ok" -eq 1
           done
+          for f in ci-artifacts/release/*.zip; do
+            ok=0
+            for _ in 1 2 3 4 5; do
+              if gh attestation verify "$f" -R "$GITHUB_REPOSITORY" --predicate-type https://spdx.dev/Document/v2.3; then ok=1; break; fi
+              sleep 3
+            done
+            test "$ok" -eq 1
+          done
       - name: Upload release candidates
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: rf-network-tool-v1.4.2
-          path: ci-artifacts/release/*.zip
+          path: |
+            ci-artifacts/release/*.zip
+            ci-artifacts/release/*.spdx.json
           if-no-files-found: error
 
 
@@ -182,8 +206,8 @@ jobs:
       - name: Build public checksum file
         run: |
           cd release-assets
-          sha256sum -- *.zip | sort > SHA256SUMS.txt
-          test "$(wc -l < SHA256SUMS.txt)" -eq 2
+          sha256sum -- *.zip *.spdx.json | sort > SHA256SUMS.txt
+          test "$(wc -l < SHA256SUMS.txt)" -eq 4
       - name: Publish or refresh v1.4.2 release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -193,6 +217,8 @@ jobs:
           expected=(
             "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip"
             "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip"
+            "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.spdx.json"
+            "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.spdx.json"
             "SHA256SUMS.txt"
           )
           for f in "${expected[@]}"; do test -s "release-assets/$f"; done
@@ -219,6 +245,8 @@ jobs:
           expected={
               "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip",
               "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip",
+              "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.spdx.json",
+              "RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.spdx.json",
               "SHA256SUMS.txt",
           }
           missing=expected-names
