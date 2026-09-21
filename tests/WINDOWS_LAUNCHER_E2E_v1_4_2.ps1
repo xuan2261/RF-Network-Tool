@@ -2,6 +2,11 @@
 $ErrorActionPreference='Stop'
 $sourceRoot=Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $artifactDir=Join-Path $sourceRoot 'ci-artifacts';New-Item -ItemType Directory -Path $artifactDir -Force|Out-Null
+$versionFile=Join-Path $sourceRoot 'VERSION'
+if(-not(Test-Path -LiteralPath $versionFile)){throw 'VERSION is missing'}
+$appVersion=([IO.File]::ReadAllText($versionFile)).Trim()
+if($appVersion -notmatch '^\d+\.\d+\.\d+$'){throw "Invalid VERSION: $appVersion"}
+$escapedVersion=[regex]::Escape($appVersion)
 $fail=New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$c,[string]$n){if($c){Write-Host "PASS $n" -ForegroundColor Green}else{Write-Host "FAIL $n" -ForegroundColor Red;[void]$fail.Add($n)}}
 function Normalize-UiName([string]$value){if($null -eq $value){return ''};return (($value -replace '&','' -replace '\s+',' ').Trim())}
@@ -9,8 +14,8 @@ function Invoke-Captured([string]$exe,[string]$argumentString,[int]$timeoutMs=20
   $psi=New-Object Diagnostics.ProcessStartInfo;$psi.FileName=$exe;$psi.Arguments=$argumentString;$psi.UseShellExecute=$false;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true;$psi.CreateNoWindow=$true
   $p=New-Object Diagnostics.Process;$p.StartInfo=$psi;[void]$p.Start();if(-not $p.WaitForExit($timeoutMs)){try{$p.Kill()}catch{};throw "Process timeout: $exe $argumentString"};$o=$p.StandardOutput.ReadToEnd();$e=$p.StandardError.ReadToEnd();$rc=$p.ExitCode;$p.Dispose();return [pscustomobject]@{ExitCode=$rc;Out=$o;Err=$e}
 }
-$runtime=@('START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','README.txt')
-$sandbox=Join-Path $env:TEMP ('RFT-v142-e2e-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $sandbox -Force|Out-Null
+$runtime=@('START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','README.txt','VERSION')
+$sandbox=Join-Path $env:TEMP ('RFT-versioned-e2e-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $sandbox -Force|Out-Null
 foreach($name in $runtime){Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination (Join-Path $sandbox $name) -Force}
 $psExe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $launcher=Join-Path $sandbox 'RF-Network-Tool-Launcher.ps1'
@@ -39,7 +44,7 @@ try {
             $windowName=[string]$candidate.Current.Name
             if($windowName -and -not $observed.Contains($windowName)){[void]$observed.Add($windowName)}
             $normalizedWindowName=Normalize-UiName $windowName
-            if($normalizedWindowName -match '^RF Network Diagnostic Tool - Portable v1\.4\.2'){ $rootEl=$candidate;break }
+            if($normalizedWindowName -match ('^RF Network Diagnostic Tool - Portable v'+$escapedVersion)){ $rootEl=$candidate;break }
           }
           if($null -eq $rootEl){Start-Sleep -Milliseconds 150}
         }
@@ -47,7 +52,7 @@ try {
         Assert-True ($null -ne $rootEl) 'Main WinForms window discovered via UIAutomation'
         if($null -ne $rootEl){
           $normalizedRootName=Normalize-UiName ([string]$rootEl.Current.Name)
-          Assert-True ($normalizedRootName -match '^RF Network Diagnostic Tool - Portable v1\.4\.2') 'Window title/version'
+          Assert-True ($normalizedRootName -match ('^RF Network Diagnostic Tool - Portable v'+$escapedVersion)) 'Window title/version'
           $cond=New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::TabItem)
           $items=$rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cond)
           $names=@();foreach($x in $items){$names += [string]$x.Current.Name}

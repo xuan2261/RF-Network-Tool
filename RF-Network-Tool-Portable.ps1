@@ -2,6 +2,10 @@
 Add-Type -AssemblyName System.Drawing
 
 $BaseDir = if ($env:RFT_BASEDIR -and (Test-Path -LiteralPath $env:RFT_BASEDIR)) { $env:RFT_BASEDIR } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$VersionFile = Join-Path $BaseDir 'VERSION'
+if (-not (Test-Path -LiteralPath $VersionFile)) { throw "Không tìm thấy VERSION: $VersionFile" }
+$AppVersion = ([IO.File]::ReadAllText($VersionFile)).Trim()
+if ($AppVersion -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION không hợp lệ: $AppVersion" }
 $DataDir = if ($env:RFT_DATADIR -and (Test-Path -LiteralPath $env:RFT_DATADIR)) { $env:RFT_DATADIR } else { $BaseDir }
 # Self-heal when the main script is launched directly from a read-only folder (normally the launcher already handles this).
 try {
@@ -1827,7 +1831,7 @@ function Write-ScanLog([string]$path,[string]$text) {
 
 $form = New-Object System.Windows.Forms.Form
 $script:MainForm=$form
-$form.Text = 'RF & Network Diagnostic Tool - Portable v1.4.2 Full QA / CI-E2E'
+$form.Text = "RF & Network Diagnostic Tool - Portable v$AppVersion Full QA / CI-E2E"
 $form.StartPosition = 'CenterScreen'
 $form.Size = New-Object System.Drawing.Size(1120, 780)
 $form.MinimumSize = New-Object System.Drawing.Size(980, 680)
@@ -2715,7 +2719,7 @@ function Start-ScanWorker([array]$targets,$ai,$adapter,$settings) {
     }
     Write-TextAtomic $ScanConfigFile (ConvertTo-Json -InputObject $cfg -Depth 5)
     $script:ScanLogFile=Join-Path $RuntimeLogDir ("scan-$((Get-Date).ToString('yyyyMMdd-HHmmss')).log")
-    Write-ScanLog $script:ScanLogFile "START ENGINE=v1.4.2 Profile=$($settings.Profile) CIDR=$($txtCidr.Text.Trim()) Adapter=$($adapter.Name) Local=$($ai.IP)/$($ai.Prefix) Gateway=$($ai.Gateway) FastPing=$($settings.FastPingTimeoutMs)ms Retry=$($settings.RetryEnabled)/$($settings.RetryPingTimeoutMs)ms PingConcurrency=$($settings.PingConcurrency) ArpConcurrency=$($settings.ArpConcurrency)"
+    Write-ScanLog $script:ScanLogFile "START ENGINE=v$AppVersion Profile=$($settings.Profile) CIDR=$($txtCidr.Text.Trim()) Adapter=$($adapter.Name) Local=$($ai.IP)/$($ai.Prefix) Gateway=$($ai.Gateway) FastPing=$($settings.FastPingTimeoutMs)ms Retry=$($settings.RetryEnabled)/$($settings.RetryPingTimeoutMs)ms PingConcurrency=$($settings.PingConcurrency) ArpConcurrency=$($settings.ArpConcurrency)"
 
     $psExe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $psi=New-Object Diagnostics.ProcessStartInfo
@@ -3605,7 +3609,7 @@ $form.Add_Shown({
     if($loadedCount -gt 0){Save-Targets}
     Sync-MonitoringWithTargets -Save
     Refresh-MonitorTimelineGrid
-    Add-Log $pingLog 'RF & Network Diagnostic Tool v1.4.2 Full QA / CI-E2E đã sẵn sàng. Tên gợi nhớ sửa trực tiếp trong bảng PING (double-click/F2).'
+    Add-Log $pingLog "RF & Network Diagnostic Tool v$AppVersion Full QA / CI-E2E đã sẵn sàng. Tên gợi nhớ sửa trực tiếp trong bảng PING (double-click/F2)."
     Add-Log $rfLog 'Tab RF UDP: nhập local port -> Start UDP. Packet nhận được sẽ hiện TEXT/HEX và tự dò RSSI/SNR.'
 })
 

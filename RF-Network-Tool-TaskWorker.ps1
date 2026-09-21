@@ -13,6 +13,11 @@
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$VersionFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'VERSION'
+if (-not (Test-Path -LiteralPath $VersionFile)) { throw "Missing VERSION: $VersionFile" }
+$AppVersion = ([IO.File]::ReadAllText($VersionFile)).Trim()
+if ($AppVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid VERSION: $AppVersion" }
+$UserAgent = "RF-Network-Tool/$AppVersion"
 
 function Write-TextAtomic([string]$Path,[string]$Text,[System.Text.Encoding]$Encoding=$null) {
     if ($null -eq $Encoding) { $Encoding = New-Object System.Text.UTF8Encoding($true) }
@@ -63,7 +68,7 @@ function Download-FileSafe([string]$Url,[string]$Destination,[int]$TimeoutMs=120
         $req=[Net.HttpWebRequest]::Create($uri)
         $req.Method='GET';$req.Timeout=$TimeoutMs;$req.ReadWriteTimeout=$TimeoutMs
         $req.AllowAutoRedirect=$true;$req.MaximumAutomaticRedirections=3;$req.Proxy=$null
-        $req.UserAgent='RF-Network-Tool/1.4.2'
+        $req.UserAgent=$UserAgent
         $resp=$req.GetResponse()
         if ($resp.ResponseUri.Scheme -ne 'https' -or $resp.ResponseUri.Host -ne 'standards-oui.ieee.org') { throw "Unexpected IEEE redirect: $($resp.ResponseUri)" }
         if ($resp.ContentLength -gt $MaxBytes) { throw "OUI file exceeds $MaxBytes bytes." }
@@ -196,7 +201,7 @@ function Get-Http([string]$Ip,[int]$Port,[int]$Timeout=850) {
     try {
         $uri="http://$Ip" + $(if($Port -ne 80){":$Port"}else{''}) + '/'
         $req=[Net.HttpWebRequest]::Create($uri);$req.Method='GET';$req.Timeout=$Timeout;$req.ReadWriteTimeout=$Timeout
-        $req.AllowAutoRedirect=$false;$req.Proxy=$null;$req.UserAgent='RF-Network-Tool/1.4.2'
+        $req.AllowAutoRedirect=$false;$req.Proxy=$null;$req.UserAgent=$UserAgent
         $resp=$req.GetResponse();$body=Read-ResponseLimited $resp 262144;$title=''
         if ($body -match '(?is)<title[^>]*>\s*(.*?)\s*</title>') {
             $title=([regex]::Replace($matches[1],'<[^>]+>','')).Trim();if($title.Length -gt 160){$title=$title.Substring(0,160)}
@@ -251,7 +256,7 @@ function Get-Upnp([string]$Location,[string]$Ip,[int]$Timeout=900) {
     try {
         $uri=[Uri]$Location
         if($uri.Scheme -notin @('http','https') -or $uri.Host -ne $Ip){return $null}
-        $req=[Net.HttpWebRequest]::Create($uri);$req.Method='GET';$req.Timeout=$Timeout;$req.ReadWriteTimeout=$Timeout;$req.AllowAutoRedirect=$false;$req.Proxy=$null;$req.UserAgent='RF-Network-Tool/1.4.2'
+        $req=[Net.HttpWebRequest]::Create($uri);$req.Method='GET';$req.Timeout=$Timeout;$req.ReadWriteTimeout=$Timeout;$req.AllowAutoRedirect=$false;$req.Proxy=$null;$req.UserAgent=$UserAgent
         $resp=$req.GetResponse();$xml=ConvertFrom-SafeXml (Read-ResponseLimited $resp 524288);if(-not $xml){return $null}
         function Get-NodeText([string]$Name){$node=$xml.SelectSingleNode("//*[local-name()='device']/*[local-name()='$Name']");if($node){return [string]$node.InnerText}else{return ''}}
         return [pscustomobject]@{FriendlyName=(Get-NodeText 'friendlyName');Manufacturer=(Get-NodeText 'manufacturer');ModelName=(Get-NodeText 'modelName');ModelNumber=(Get-NodeText 'modelNumber');SerialNumber=(Get-NodeText 'serialNumber');DeviceType=(Get-NodeText 'deviceType');ManufacturerURL=(Get-NodeText 'manufacturerURL');ModelURL=(Get-NodeText 'modelURL')}

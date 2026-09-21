@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import hashlib,os,zipfile,json,sys
+import hashlib,os,re,zipfile,json,sys
 root=Path(__file__).resolve().parents[1]; out=root.parent
-portable=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE'
-pzip=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip'; zportable=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'
-manifest_name='RELEASE_MANIFEST_v1.4.2.json'
+version=(root/'VERSION').read_text(encoding='ascii').strip();assert re.fullmatch(r'\d+\.\d+\.\d+',version)
+tag=f'v{version}';prefix=f'RF-Network-Tool-{tag}-FULL-QA-CI-E2E'
+portable=out/f'{prefix}-PORTABLE'
+pzip=out/f'{prefix}-PROJECT.zip'; zportable=out/f'{prefix}-PORTABLE.zip'
+manifest_name=f'RELEASE_MANIFEST_{tag}.json'
 required={
  'START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1',
- 'RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','README.txt','SHA256.txt'
+ 'RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','README.txt','VERSION','SHA256.txt'
 }
 def sha(p):
  h=hashlib.sha256()
@@ -43,7 +45,7 @@ checks={
  'portable_exact_files':portable.is_dir() and {p.name for p in portable.iterdir() if p.is_file()}==required,
  'portable_no_dirs':portable.is_dir() and not any(p.is_dir() for p in portable.iterdir()),
  'project_manifest_exists':(root/manifest_name).is_file(),
- 'project_manifest_release':manifest.get('release')=='v1.4.2 Full QA / CI-E2E',
+ 'project_manifest_release':manifest.get('release')==f'{tag} Full QA / CI-E2E' and manifest.get('version')==version,
  'project_sha_manifest':(root/'SHA256.txt').is_file() and verify_sha(root),
  'portable_sha_manifest':(portable/'SHA256.txt').is_file() and verify_sha(portable),
  'project_sha_coverage':(root/'SHA256.txt').is_file() and set(sha_entries(root))==expected_hash_files(root),
@@ -64,7 +66,7 @@ checks={
  'portable_has_readme':(portable/'README.txt').is_file() and 'MONITORING' in (portable/'README.txt').read_text(encoding='utf-8-sig'),
  'vbs_ascii_no_bom':not vbs.startswith(b'\xef\xbb\xbf') and all(x<128 for x in vbs),
  'cmd_ascii_no_bom':all(not b.startswith(b'\xef\xbb\xbf') and all(x<128 for x in b) for b in cmds),
- 'windows_v142_tests_in_full':all((root/x).is_file() for x in ['RUN-REAL-MACHINE-QUALIFICATION.cmd','RF-Network-Tool-RealMachineQualification.ps1','tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','tests/WINDOWS_CHAOS_TEST_v1_4_2.ps1','tests/WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','tests/WINDOWS_REAL_LAN_TEST_v1_4_2.ps1','tests/WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1','tests/WINDOWS_LINT_GATE_v1_4_2.ps1','tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1','tests/WINDOWS_SMOKE_TEST_v1_4_2.md','tests/security_audit_v1_4_2.py','tests/real_machine_harness_contract_v1_4_2.py','tests/reproducible_package_test_v1_4_2.py']),
+ 'windows_v142_tests_in_full':all((root/x).is_file() for x in ['RUN-REAL-MACHINE-QUALIFICATION.cmd','RF-Network-Tool-RealMachineQualification.ps1','tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','tests/WINDOWS_CHAOS_TEST_v1_4_2.ps1','tests/WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','tests/WINDOWS_REAL_LAN_TEST_v1_4_2.ps1','tests/WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1','tests/WINDOWS_LINT_GATE_v1_4_2.ps1','tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1','tests/WINDOWS_SMOKE_TEST_v1_4_2.md','tests/security_audit_v1_4_2.py','tests/real_machine_harness_contract_v1_4_2.py','tests/reproducible_package_test_v1_4_2.py','tests/version_contract.py','release_tools/build_release.py']),
  'ci_workflows_in_full':all((root/x).is_file() for x in ['.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml']),
  'portable_no_dev_artifacts':portable.is_dir() and not any((portable/x).exists() for x in ['tests','plans','release_tools','.github','QA_REPORT_v1.4.2.md'])
 }

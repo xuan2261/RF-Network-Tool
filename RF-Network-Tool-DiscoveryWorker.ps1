@@ -13,6 +13,11 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
+$VersionFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'VERSION'
+if (-not (Test-Path -LiteralPath $VersionFile)) { throw "Missing VERSION: $VersionFile" }
+$AppVersion = ([IO.File]::ReadAllText($VersionFile)).Trim()
+if ($AppVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid VERSION: $AppVersion" }
+$UserAgent = "RF-Network-Tool/$AppVersion"
 if($DurationSec -lt 5){$DurationSec=5}elseif($DurationSec -gt 120){$DurationSec=120}
 $DiscoveryProfile=if([string]::IsNullOrWhiteSpace($DiscoveryProfile)){'BALANCED'}else{$DiscoveryProfile.ToUpperInvariant()}
 if($DiscoveryProfile -notin @('FAST','BALANCED','DEEP')){$DiscoveryProfile='BALANCED'}
@@ -293,7 +298,7 @@ function Get-UpnpFriendlyName([string]$location,[string]$expectedIp) {
     if(-not $location){return ''}
     try {
         $u=[Uri]$location; if($u.Scheme -notin @('http','https')){return ''}; if($expectedIp -and $u.Host -ne $expectedIp){return ''}
-        $req=[Net.HttpWebRequest]::Create($u);$req.Timeout=700;$req.ReadWriteTimeout=700;$req.AllowAutoRedirect=$false;$req.Proxy=$null;$req.UserAgent='RF-Network-Tool/1.4.2'
+        $req=[Net.HttpWebRequest]::Create($u);$req.Timeout=700;$req.ReadWriteTimeout=700;$req.AllowAutoRedirect=$false;$req.Proxy=$null;$req.UserAgent=$UserAgent
         $resp=$null;$sr=$null
         try{$resp=$req.GetResponse();$sr=New-Object IO.StreamReader -ArgumentList (,$resp.GetResponseStream());$buf=New-Object char[] 4096;$sb=New-Object Text.StringBuilder;while($sb.Length -lt 262144){$want=[Math]::Min($buf.Length,262144-$sb.Length);$n=$sr.Read($buf,0,$want);if($n -le 0){break};[void]$sb.Append($buf,0,$n)};$txt=$sb.ToString()}finally{if($sr){try{$sr.Dispose()}catch{}};if($resp){try{$resp.Close()}catch{}}}
         $m=[regex]::Match($txt,'(?is)<friendlyName>\s*([^<]+)\s*</friendlyName>');if($m.Success){return (Normalize-Name $m.Groups[1].Value)}

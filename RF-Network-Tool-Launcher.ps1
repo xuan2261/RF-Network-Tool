@@ -5,6 +5,8 @@
 $ErrorActionPreference = 'Stop'
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $MainScript = Join-Path $BaseDir 'RF-Network-Tool-Portable.ps1'
+$VersionFile = Join-Path $BaseDir 'VERSION'
+$AppVersion = ''
 $WorkerScript = Join-Path $BaseDir 'RF-Network-Tool-DiscoveryWorker.ps1'
 $ScanWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-ScanWorker.ps1'
 $PingWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-PingWorker.ps1'
@@ -88,7 +90,10 @@ function Write-LaunchLog([string]$text) {
 }
 
 try {
-    Write-LaunchLog 'Launcher v1.4.2 Full QA / CI-E2E start'
+    if (-not (Test-Path -LiteralPath $VersionFile)) { throw "Không tìm thấy VERSION: $VersionFile" }
+    $AppVersion = ([IO.File]::ReadAllText($VersionFile)).Trim()
+    if ($AppVersion -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION không hợp lệ: $AppVersion" }
+    Write-LaunchLog "Launcher v$AppVersion Full QA / CI-E2E start"
     Write-LaunchLog "PowerShell=$($PSVersionTable.PSVersion) Edition=$($PSVersionTable.PSEdition) OS=$env:OS"
     Write-LaunchLog "ApartmentState=$([Threading.Thread]::CurrentThread.ApartmentState)"
     Write-LaunchLog "BaseDir=$BaseDir"
@@ -98,7 +103,7 @@ try {
     if ($PSVersionTable.PSVersion -lt [version]'5.1') { throw "Cần Windows PowerShell 5.1 trở lên. Hiện tại: $($PSVersionTable.PSVersion)" }
     if ([Threading.Thread]::CurrentThread.ApartmentState -ne [Threading.ApartmentState]::STA) { throw 'PowerShell phải chạy ở STA. Hãy dùng START-RF-NETWORK-TOOL.vbs hoặc RUN-PORTABLE.cmd.' }
     if (-not (Test-Path -LiteralPath $SystemPowerShell)) { throw "Không tìm thấy Windows PowerShell hệ thống: $SystemPowerShell" }
-    foreach($required in @($MainScript,$WorkerScript,$ScanWorkerScript,$PingWorkerScript,$TaskWorkerScript,$StartScript)) { if(-not (Test-Path -LiteralPath $required)){throw "Không tìm thấy file bắt buộc: $required"} }
+    foreach($required in @($MainScript,$WorkerScript,$ScanWorkerScript,$PingWorkerScript,$TaskWorkerScript,$StartScript,$VersionFile)) { if(-not (Test-Path -LiteralPath $required)){throw "Không tìm thấy file bắt buộc: $required"} }
 
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
     Add-Type -AssemblyName System.Drawing -ErrorAction Stop

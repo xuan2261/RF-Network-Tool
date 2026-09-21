@@ -20,7 +20,7 @@ checks={
  'orchestrator_clean_winps_modulepath':all(x in ps for x in ['Start-CleanWindowsPowerShell','Remove-Item Env:PSModulePath','PowerShellGet -MinimumVersion 2.2.5','PSScriptAnalyzer -RequiredVersion 1.25.0']),
  'orchestrator_child_fail_defense':all(x in ps for x in ['selfReportedFail',"child reported FAIL"]),
  'orchestrator_redirect_handle_release':all(x in ps for x in ["try{$p.Dispose()}catch{};$p=$null","[IO.File]::ReadAllText($stdout)","orchestrator-error.txt"]) and ps.index("try{$p.Dispose()}catch{};$p=$null",ps.index('function Invoke-Step')) < ps.index('[IO.File]::ReadAllText($stdout)',ps.index('function Invoke-Step')),
- 'e2e_uia_title_normalization':all(x in e2e for x in ['Normalize-UiName',"-replace '&','' -replace '\\s+',' '",'^RF Network Diagnostic Tool - Portable v1\\.4\\.2']),
+ 'e2e_uia_title_normalization':all(x in e2e for x in ['Normalize-UiName',"-replace '&','' -replace '\\s+',' '",'$escapedVersion',"'VERSION'"]),
  'e2e_timeout_uses_argument_string':'Process timeout: $exe $argumentString' in e2e and 'Process timeout: $exe $args' not in e2e,
  'real_lan_private_only':'refusing to probe a public IPv4 subnet' in lan and 'Test-LocalSafeIPv4' in lan,
  'real_lan_not_applicable':'exit 3' in lan and 'no active physical private/link-local/CGNAT' in lan,

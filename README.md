@@ -2,7 +2,7 @@
 
 Portable Windows RF & network diagnostics tool.
 
-Current development baseline: **v1.4.2 Full QA / CI-E2E**.
+Current development baseline: **v1.4.3 release-hardening candidate**.
 
 The repository includes:
 - Windows PowerShell 5.1 / WinForms runtime
@@ -12,4 +12,4 @@ The repository includes:
 - Windows integration and launcher E2E tests
 - GitHub Actions CI for Windows Server 2022 and 2025
 
-See `README.txt`, `QA_AUDIT_v1.4.2.md`, and `RELEASE_NOTES_v1.4.2.md` for detailed status and verification scope.
+See `README.txt`, `RELEASE_NOTES.md`, and the historical `QA_AUDIT_v1.4.2.md` / `RELEASE_NOTES_v1.4.2.md` for verification history.

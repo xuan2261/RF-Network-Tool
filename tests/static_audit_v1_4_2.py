@@ -5,6 +5,7 @@ root=Path(__file__).resolve().parents[1]
 names=['RF-Network-Tool-Portable.ps1','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1']
 paths=[root/n for n in names];texts={p.name:p.read_text(encoding='utf-8-sig') for p in paths}
 mt=texts[names[0]];lt=texts[names[1]];dt=texts[names[2]];st=texts[names[3]];pt=texts[names[4]];tt=texts[names[5]]
+version=(root/'VERSION').read_text(encoding='ascii').strip()
 
 def strip_ps(s):
     out=[];i=0;n=len(s);state='normal';end=None
@@ -75,10 +76,10 @@ vbs=(root/'START-RF-NETWORK-TOOL.vbs').read_bytes()
 cmds=[(root/n).read_bytes() for n in ['RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RUN-TESTS.cmd']]
 rt=(root/'README.txt').read_text(encoding='utf-8-sig')
 checks={
- 'version_main_v142':'v1.4.2 Full QA / CI-E2E' in mt,
- 'version_launcher_v142':'v1.4.2 Full QA / CI-E2E' in lt,
- 'task_useragents_v142':tt.count('RF-Network-Tool/1.4.2')>=2,
- 'discovery_useragent_v142':'RF-Network-Tool/1.4.2' in dt,
+ 'version_main_dynamic':'$AppVersion' in mt and 'VERSION' in mt and 'v1.4.2 Full QA / CI-E2E' not in mt,
+ 'version_launcher_dynamic':'$AppVersion' in lt and 'VERSION' in lt and 'v1.4.2 Full QA / CI-E2E' not in lt,
+ 'task_useragents_dynamic':tt.count('$UserAgent')>=3 and 'RF-Network-Tool/1.4.2' not in tt,
+ 'discovery_useragent_dynamic':'$UserAgent' in dt and 'RF-Network-Tool/1.4.2' not in dt,
  'six_runtime_scripts':all(p.exists() for p in paths),
  'all_delimiters_balanced':all(balanced(x) for x in texts.values()),
  'no_duplicate_functions':all(not dups(x) for x in texts.values()),
@@ -126,7 +127,7 @@ checks={
  'ui_exception_boundary':'SetUnhandledExceptionMode' in mt and 'add_ThreadException' in mt,
  'vbs_ascii_no_bom':not vbs.startswith(b'\xef\xbb\xbf') and all(x<128 for x in vbs),
  'cmd_ascii_no_bom':all(not b.startswith(b'\xef\xbb\xbf') and all(x<128 for x in b) for b in cmds),
- 'readme_v142':'v1.4.2' in rt and 'MONITORING' in rt,
+ 'readme_current_version':('v'+version) in rt and 'MONITORING' in rt,
  'ci_workflow_present':(root/'.github/workflows/ci.yml').is_file(),
  'ui_e2e_workflow_present':(root/'.github/workflows/ui-e2e-selfhosted.yml').is_file(),
  'windows_integration_v142':(root/'tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1').is_file(),
@@ -136,6 +137,6 @@ checks={
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():print(('PASS' if v else 'FAIL'),k)
 print('TOTAL',len(checks),'FAILED',len(failed))
-(root/'BUILD_CHECKS_v1.4.2.json').write_text(json.dumps({'release':'v1.4.2 Full QA / CI-E2E','all_pass':not failed,'checks':checks,'limitations':['Static/deterministic source audit only. Hosted Windows PowerShell 5.1 runtime evidence is owned by GitHub Actions; interactive WinForms UI E2E remains a separate self-hosted gate.']},ensure_ascii=False,indent=2),encoding='utf-8')
+(root/f'BUILD_CHECKS_v{version}.json').write_text(json.dumps({'release':f'v{version} Full QA / CI-E2E','all_pass':not failed,'checks':checks,'limitations':['Static/deterministic source audit only. Hosted Windows PowerShell 5.1 runtime evidence is owned by GitHub Actions; interactive WinForms UI E2E remains a separate self-hosted gate.']},ensure_ascii=False,indent=2),encoding='utf-8')
 if failed:print('FAILED_KEYS',failed)
 sys.exit(1 if failed else 0)

@@ -1,4 +1,4 @@
-﻿RF & NETWORK DIAGNOSTIC TOOL - PORTABLE v1.4.2 RUNTIME INTEGRITY
+﻿RF & NETWORK DIAGNOSTIC TOOL - PORTABLE v1.4.3 RUNTIME INTEGRITY
 ================================================================
 
 MUC DICH
@@ -20,7 +20,7 @@ CHAY LAN DAU
 3. Neu PASS, dung START-RF-NETWORK-TOOL.vbs de mo GUI khong giu cua so CMD.
 4. Neu dang dung FULL PROJECT, co the chay RUN-TESTS.cmd de kiem tra Windows integration.
 
-TAB PING - v1.4.2
+TAB PING - v1.4.3
 - Them IP/hostname, tool tao ten mac dinh Default N; double-click/F2 o Name de sua.
 - Luu schemaVersion 2 vao RF-Network-Tool.targets.json; tu migrate du lieu cu.
 - Moi target = mot row DataGridView, tranh loi layout/don nhieu IP vao mot hang cua implementation cu.
@@ -40,7 +40,7 @@ TAB NETWORK SCAN
 - Worker scan nam ngoai UI process callback path; UI poll state theo runId/session de loai stale state.
 - Name discovery dung DNS/PTR, ping -a/NetBIOS (tuy profile), mDNS/DNS-SD, SSDP/UPnP va cache evidence.
 
-TAB MONITORING - v1.4.2
+TAB MONITORING - v1.4.3
 - Nguon target: danh sach da luu trong tab PING. Nhan Dong bo tu PING neu can cap nhat ten.
 - Moi target co ON/OFF rieng, interval 1/2/5/10/30 giay va tuy chon ALERT.
 - Metrics: STATUS, NOW, MIN, AVG, MAX, LOSS, UPTIME, DOWNTIME, OUTAGES, LAST CHANGE.
@@ -65,7 +65,7 @@ OPEN PORTS / DEEP ANALYSIS
 - Day khong phai full 1-65535 port scanner.
 - HTTP/UPnP LAN probe khong dung system proxy; redirect bi tat; XML DTD bi cam va response bi gioi han.
 
-IEEE OUI - v1.4.2
+IEEE OUI - v1.4.3
 - Nhan Update IEEE OUI de tai registry tu standards-oui.ieee.org qua HTTPS trong background Task Worker.
 - Worker kiem scheme/host sau redirect, gioi han kich thuoc va tao compact cache:
   RF-Network-Tool.oui-prefix-cache.v1.tsv

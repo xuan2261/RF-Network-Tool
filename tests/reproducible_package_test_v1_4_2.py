@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib,json,os,shutil,subprocess,sys,tempfile,zipfile
 
 root=Path(__file__).resolve().parents[1]
+version=(root/'VERSION').read_text(encoding='ascii').strip();tag=f'v{version}';prefix=f'RF-Network-Tool-{tag}-FULL-QA-CI-E2E'
 
 def sha(path):
  h=hashlib.sha256()
@@ -18,9 +19,9 @@ def build(project,run_id):
  env['RFT_WINDOWS_RUNTIME_VERIFIED']='1'
  env['RFT_SOURCE_REVISION']='repro-source-revision'
  env['GITHUB_RUN_ID']=str(run_id)
- subprocess.run([sys.executable,str(project/'release_tools'/'build_release_v1_4_2.py')],cwd=project,env=env,check=True,stdout=subprocess.DEVNULL)
+ subprocess.run([sys.executable,str(project/'release_tools'/'build_release.py')],cwd=project,env=env,check=True,stdout=subprocess.DEVNULL)
  out=project.parent
- return out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip',out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'
+ return out/f'{prefix}-PROJECT.zip',out/f'{prefix}-PORTABLE.zip'
 
 def perturb_mtimes(project):
  t=1_900_000_000
@@ -38,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
  tmp=Path(td); project=tmp/'RF-Network-Tool'; copy_project(project)
  p1,z1=build(project,111111)
  first=(sha(p1),sha(z1))
- manifest=json.loads((project/'RELEASE_MANIFEST_v1.4.2.json').read_text(encoding='utf-8'))
+ manifest=json.loads((project/f'RELEASE_MANIFEST_{tag}.json').read_text(encoding='utf-8'))
  checks={
   'manifest_has_stable_source_revision':manifest.get('verification',{}).get('sourceRevision')=='repro-source-revision',
   'manifest_has_no_run_id':'githubActionsRunId' not in manifest.get('verification',{}),
