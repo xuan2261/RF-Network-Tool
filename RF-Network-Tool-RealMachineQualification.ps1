@@ -19,6 +19,7 @@ $psExe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe
 $results=New-Object System.Collections.Generic.List[object]
 $transcript=Join-Path $runDir 'qualification-transcript.txt'
 $transcriptStarted=$false
+$cleanlinessState=Join-Path $env:TEMP ('RFT-cleanliness-'+[guid]::NewGuid().ToString('N')+'.json')
 
 function Add-Result([string]$name,[string]$status,[string]$detail,[long]$elapsedMs=0){
     [void]$results.Add([pscustomobject]@{name=$name;status=$status;detail=$detail;elapsedMs=$elapsedMs})
@@ -266,6 +267,9 @@ try{
     if(-not(Test-Path $tests)){Add-Result 'full_project_tests_present' 'FAIL' 'Use the FULL PROJECT package.'}
     else{
         Add-Result 'full_project_tests_present' 'PASS' 'tests directory available'
+        $cleanlinessScript=Join-Path $tests 'WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1'
+        $cleanlinessArgs="-StateFile `"$cleanlinessState`""
+        Invoke-Step 'machine_cleanliness_baseline' $cleanlinessScript ("-Mode Snapshot "+$cleanlinessArgs) 30
         Invoke-Step 'windows_integration' (Join-Path $tests 'WINDOWS_INTEGRATION_TEST_v1_4_2.ps1') '' 180
         if(Ensure-PSScriptAnalyzer){Invoke-Step 'powershell_lint' (Join-Path $tests 'WINDOWS_LINT_GATE_v1_4_2.ps1') '' 180}
         else{Add-Result 'powershell_lint' 'SKIP' 'PSScriptAnalyzer 1.25.0 unavailable; GUI/FULL mode can install it.'}
@@ -280,10 +284,14 @@ try{
             $lanArgs='-Profiles FAST,BALANCED';if($InterfaceIndex -gt 0){$lanArgs+=" -InterfaceIndex $InterfaceIndex"}
             Invoke-Step 'real_lan_fast_balanced' (Join-Path $tests 'WINDOWS_REAL_LAN_TEST_v1_4_2.ps1') $lanArgs 360 @(3)
         }else{Add-Result 'real_lan_fast_balanced' 'SKIP' ("$Mode mode")}
+        Invoke-Step 'machine_cleanliness_post' $cleanlinessScript ("-Mode Assert "+$cleanlinessArgs+" -TimeoutSec 15") 45
     }
     if(Test-Path (Join-Path $root 'ci-artifacts')){Copy-Item (Join-Path $root 'ci-artifacts') (Join-Path $runDir 'ci-artifacts') -Recurse -Force}
     if(Test-Path (Join-Path $root 'logs')){Copy-Item (Join-Path $root 'logs') (Join-Path $runDir 'app-logs') -Recurse -Force}
 }catch{Add-Result 'orchestrator' 'FAIL' $_.Exception.Message}
-finally{Finalize-Evidence}
+finally{
+    try{Finalize-Evidence}
+    finally{Remove-Item -LiteralPath $cleanlinessState -Force -ErrorAction SilentlyContinue}
+}
 if(@($results.ToArray()|Where-Object status -eq 'FAIL').Count){exit 1}
 exit 0
