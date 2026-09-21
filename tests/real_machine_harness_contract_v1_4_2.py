@@ -22,7 +22,7 @@ checks={
  'cleanliness_runtime_tokens':all(x in clean for x in ['RF-Network-Tool-Launcher.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1']),
  'cleanliness_temp_prefixes':all(x in clean for x in ['RFT-v142-test-','RFT-v142-chaos-','RFT-v142-perf-','RFT-v142-e2e-','RFT-real-lan-']),
  'cleanliness_state_removed':all(x in clean for x in ['Remove-StateFile','finally{','Unsupported machine-cleanliness state schema.']) and 'Remove-Item -LiteralPath $cleanlinessState' in ps,
- 'cleanliness_failure_path_test':all(x in clean_test for x in ['Dirty baseline fails closed','Post-run temp leak fails closed','Clean post-run assertion succeeds','ALL WINDOWS MACHINE CLEANLINESS TESTS PASSED']),
+ 'cleanliness_failure_path_test':all(x in clean_test for x in ['Dirty baseline fails closed','Post-run temp leak fails closed','Process-leak baseline snapshot succeeds','Post-run process leak fails closed','Process-leak assertion removes state file','Clean post-run assertion succeeds','ALL WINDOWS MACHINE CLEANLINESS TESTS PASSED']),
  'ci_cleanliness_failure_path':'Machine cleanliness fail-closed qualification' in ci and 'WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1' in ci,
  'orchestrator_gui_gate':'WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1' in ps and "Mode -in @('Gui','Full')" in ps,
  'orchestrator_lan_skip':'skipExitCodes' in ps and '@(3)' in ps,
