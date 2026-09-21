@@ -563,6 +563,90 @@ function Process-UdpPackets {
 }
 
 
+
+function Get-AdapterIPv6Diagnostics($adapter,[int]$MaxNeighbors=8) {
+    $limit=[Math]::Min([Math]::Max($MaxNeighbors,1),16)
+    $result=[ordered]@{
+        Available=$false
+        InterfaceIndex=0
+        Addresses=@()
+        NeighborCount=0
+        NeighborStateSummary=''
+        NeighborSamples=@()
+        Error=''
+    }
+    if(-not $adapter){return [pscustomobject]$result}
+    try{
+        $props=$adapter.GetIPProperties()
+        $idx=0
+        try{$idx=[int]$props.GetIPv6Properties().Index}catch{$idx=0}
+        if($idx -le 0){return [pscustomobject]$result}
+        $result.InterfaceIndex=$idx
+
+        $addressRows=New-Object System.Collections.Generic.List[string]
+        $ipCmd=Get-Command Get-NetIPAddress -ErrorAction SilentlyContinue
+        if($ipCmd){
+            foreach($entry in @(Get-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv6 -ErrorAction Stop | Select-Object -First 32)){
+                $raw=[string]$entry.IPAddress
+                if([string]::IsNullOrWhiteSpace($raw)){continue}
+                $base=($raw -split '%',2)[0]
+                $parsed=$null
+                if(-not [Net.IPAddress]::TryParse($base,[ref]$parsed)){continue}
+                if($parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetworkV6){continue}
+                if($parsed.Equals([Net.IPAddress]::IPv6Loopback) -or $parsed.Equals([Net.IPAddress]::IPv6None) -or $parsed.IsIPv6Multicast){continue}
+                $display=$raw
+                if($parsed.IsIPv6LinkLocal -and $display -notmatch '%'){$display+='%'+$idx}
+                $scope=if($parsed.IsIPv6LinkLocal){'link-local'}elseif($parsed.IsIPv6SiteLocal){'site-local'}else{'global/ULA'}
+                $prefix=if($entry.PSObject.Properties['PrefixLength']){[int]$entry.PrefixLength}else{128}
+                $state=if($entry.PSObject.Properties['AddressState']){[string]$entry.AddressState}else{'Unknown'}
+                [void]$addressRows.Add(("{0}/{1} [{2},{3}]" -f $display,$prefix,$scope,$state))
+            }
+        }else{
+            foreach($entry in @($props.UnicastAddresses | Where-Object {$_.Address.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6} | Select-Object -First 32)){
+                $parsed=$entry.Address
+                if($parsed.Equals([Net.IPAddress]::IPv6Loopback) -or $parsed.Equals([Net.IPAddress]::IPv6None) -or $parsed.IsIPv6Multicast){continue}
+                $display=$parsed.ToString()
+                if($parsed.IsIPv6LinkLocal -and $display -notmatch '%'){$display+='%'+$idx}
+                $scope=if($parsed.IsIPv6LinkLocal){'link-local'}elseif($parsed.IsIPv6SiteLocal){'site-local'}else{'global/ULA'}
+                $prefix=try{[int]$entry.PrefixLength}catch{128}
+                [void]$addressRows.Add(("{0}/{1} [{2}]" -f $display,$prefix,$scope))
+            }
+        }
+        $result.Addresses=@($addressRows.ToArray()|Sort-Object -Unique)
+
+        $neighborRows=New-Object System.Collections.Generic.List[object]
+        $neighborCmd=Get-Command Get-NetNeighbor -ErrorAction SilentlyContinue
+        if($neighborCmd){
+            foreach($entry in @(Get-NetNeighbor -InterfaceIndex $idx -AddressFamily IPv6 -ErrorAction Stop | Select-Object -First 256)){
+                $raw=[string]$entry.IPAddress
+                if([string]::IsNullOrWhiteSpace($raw)){continue}
+                $base=($raw -split '%',2)[0]
+                $parsed=$null
+                if(-not [Net.IPAddress]::TryParse($base,[ref]$parsed)){continue}
+                if($parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetworkV6){continue}
+                if($parsed.Equals([Net.IPAddress]::IPv6Loopback) -or $parsed.Equals([Net.IPAddress]::IPv6None) -or $parsed.IsIPv6Multicast){continue}
+                $display=$raw
+                if($parsed.IsIPv6LinkLocal -and $display -notmatch '%'){$display+='%'+$idx}
+                [void]$neighborRows.Add([pscustomobject]@{
+                    IP=$display
+                    State=[string]$entry.State
+                    LinkLayer=[string]$entry.LinkLayerAddress
+                })
+            }
+        }
+        $result.NeighborCount=$neighborRows.Count
+        $result.NeighborStateSummary=(@($neighborRows.ToArray()|Group-Object State|Sort-Object Name|ForEach-Object {"$($_.Name)=$($_.Count)"}) -join ', ')
+        $result.NeighborSamples=@($neighborRows.ToArray()|Select-Object -First $limit|ForEach-Object {
+            $mac=if([string]::IsNullOrWhiteSpace([string]$_.LinkLayer)){'-'}else{[string]$_.LinkLayer}
+            "$($_.IP) [$($_.State)] => $mac"
+        })
+        $result.Available=$true
+    }catch{
+        $result.Error=$_.Exception.Message
+    }
+    return [pscustomobject]$result
+}
+
 function Convert-IPv4ToUInt32([string]$ip) {
     $bytes = [System.Net.IPAddress]::Parse($ip).GetAddressBytes()
     if ([BitConverter]::IsLittleEndian) { [Array]::Reverse($bytes) }
@@ -2141,6 +2225,8 @@ $adapterInfo.Location = New-Object System.Drawing.Point(15, 67)
 $adapterInfo.Size = New-Object System.Drawing.Size(358, 160)
 $adapterInfo.Multiline = $true
 $adapterInfo.ReadOnly = $true
+$adapterInfo.ScrollBars = 'Both'
+$adapterInfo.WordWrap = $false
 $adapterInfo.Font = New-Object System.Drawing.Font('Consolas', 9)
 $adapterInfo.BackColor = [System.Drawing.Color]::White
 $grpAdapter.Controls.Add($adapterInfo)
@@ -2318,6 +2404,10 @@ function Show-AdapterInfo {
         $ipv4 = @($p.UnicastAddresses | Where-Object { $_.Address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } | ForEach-Object { $_.Address.ToString() }) -join ', '
         $gw = @($p.GatewayAddresses | Where-Object { $_.Address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } | ForEach-Object { $_.Address.ToString() }) -join ', '
         $dns = @($p.DnsAddresses | Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } | ForEach-Object { $_.ToString() }) -join ', '
+        $ipv6Diag=Get-AdapterIPv6Diagnostics $a 3
+        $ipv6Text=if(@($ipv6Diag.Addresses).Count){@($ipv6Diag.Addresses) -join '; '}elseif($ipv6Diag.Error){'Unavailable: '+$ipv6Diag.Error}else{'-'}
+        $ndpText=if($ipv6Diag.Available){"$($ipv6Diag.NeighborCount) cached$(if($ipv6Diag.NeighborStateSummary){' | '+$ipv6Diag.NeighborStateSummary}else{''})"}else{'Unavailable'}
+        $ndpSample=if(@($ipv6Diag.NeighborSamples).Count){@($ipv6Diag.NeighborSamples) -join '; '}else{'-'}
         $adapterInfo.Text = @"
 Name     : $($a.Name)
 Type     : $($a.NetworkInterfaceType)
@@ -2327,6 +2417,9 @@ MAC      : $(Format-Mac ($a.GetPhysicalAddress().ToString()))
 IPv4     : $ipv4
 Gateway  : $gw
 DNS      : $dns
+IPv6     : $ipv6Text
+NDP      : $ndpText
+NDP sample: $ndpSample
 "@
     } catch {
         $adapterInfo.Text = "Lỗi đọc adapter:`r`n$($_.Exception.Message)"
