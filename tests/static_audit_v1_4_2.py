@@ -132,6 +132,7 @@ checks={
  'windows_integration_v142':(root/'tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1').is_file(),
  'windows_lint_gate_v142':(root/'tests/WINDOWS_LINT_GATE_v1_4_2.ps1').is_file(),
  'windows_launcher_e2e_v142':(root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').is_file(),
+  'windows_machine_cleanliness_v142':(root/'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1').is_file(),
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():print(('PASS' if v else 'FAIL'),k)
