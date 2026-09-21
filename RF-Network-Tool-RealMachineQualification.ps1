@@ -1,7 +1,8 @@
 ﻿[CmdletBinding()]
 param(
     [ValidateSet('Safe','Gui','Full')][string]$Mode='Safe',
-    [int]$InterfaceIndex=0,\n    [string]$ExpectedSourceRevision='',
+    [int]$InterfaceIndex=0,
+    [string]$ExpectedSourceRevision='',
     [string]$OutputRoot='',
     [switch]$AllowModuleInstall,
     [switch]$NoZip
@@ -47,16 +48,6 @@ function Get-SourceRevisionEvidence{
     try{
         $envSha=([string]$env:GITHUB_SHA).Trim()
         if($envSha -match '^[0-9a-fA-F]{40}
-    if($null -eq $text){return ''}
-    foreach($v in @(
-        @([string]$env:USERPROFILE,'<USERPROFILE>'),
-        @([string]$env:USERNAME,'<USERNAME>'),
-        @([string]$env:COMPUTERNAME,'<COMPUTER>')
-    )){
-        if(-not [string]::IsNullOrWhiteSpace($v[0])){$text=$text.Replace($v[0],$v[1])}
-    }
-    return $text
-}
 function Get-CleanWindowsPowerShellModulePath{
     $paths=New-Object System.Collections.Generic.List[string]
     try{
@@ -221,8 +212,10 @@ function Write-MachineInfo{
             }
             $adapters += [pscustomobject]@{ifIndex=[int]$a.ifIndex;name=[string]$a.Name;description=[string]$a.InterfaceDescription;status=[string]$a.Status;hardwareInterface=[bool]$a.HardwareInterface;ipv4=$ips}
         }
+        $source=Get-SourceRevisionEvidence
         $snap=[ordered]@{
             schemaVersion=2;capturedAt=(Get-Date).ToString('o');mode=$Mode
+            sourceRevision=[string]$source.revision;sourceRevisionEvidence=[string]$source.evidence
             os=[ordered]@{caption=[string]$os.Caption;version=[string]$os.Version;build=[string]$os.BuildNumber;architecture=[string]$os.OSArchitecture}
             powershell=[ordered]@{version=[string]$PSVersionTable.PSVersion;edition=[string]$PSVersionTable.PSEdition;apartment=[string][Threading.Thread]::CurrentThread.ApartmentState}
             process=[ordered]@{userInteractive=[Environment]::UserInteractive;sessionId=[int](Get-Process -Id $PID).SessionId;is64Bit=[Environment]::Is64BitProcess}
@@ -249,7 +242,8 @@ function Parser-Sweep{
 function Finalize-Evidence{
     try{if($transcriptStarted){Stop-Transcript|Out-Null;$script:transcriptStarted=$false}}catch{}
     $summary=[ordered]@{
-        schemaVersion=2;generatedAt=(Get-Date).ToString('o');mode=$Mode\n        sourceRevision=[string](Get-SourceRevisionEvidence).revision;sourceRevisionEvidence=[string](Get-SourceRevisionEvidence).evidence
+        schemaVersion=2;generatedAt=(Get-Date).ToString('o');mode=$Mode
+        sourceRevision=[string](Get-SourceRevisionEvidence).revision;sourceRevisionEvidence=[string](Get-SourceRevisionEvidence).evidence
         results=$results.ToArray()
         pass=@($results.ToArray()|Where-Object status -eq 'PASS').Count
         fail=@($results.ToArray()|Where-Object status -eq 'FAIL').Count
@@ -278,6 +272,7 @@ try{
     try{Start-Transcript -LiteralPath $transcript -Force|Out-Null;$transcriptStarted=$true}catch{}
     Write-Host "Mode=$Mode InterfaceIndex=$InterfaceIndex Root=$root"
     Write-MachineInfo
+    Record-SourceRevision
     Parser-Sweep
     $tests=Join-Path $root 'tests'
     if(-not(Test-Path $tests)){Add-Result 'full_project_tests_present' 'FAIL' 'Use the FULL PROJECT package.'}
@@ -314,16 +309,6 @@ exit 0
                     $out=& $git.Source -C $root rev-parse HEAD 2>$null
                     $candidate=([string]$out).Trim()
                     if($LASTEXITCODE -eq 0 -and $candidate -match '^[0-9a-fA-F]{40}
-    if($null -eq $text){return ''}
-    foreach($v in @(
-        @([string]$env:USERPROFILE,'<USERPROFILE>'),
-        @([string]$env:USERNAME,'<USERNAME>'),
-        @([string]$env:COMPUTERNAME,'<COMPUTER>')
-    )){
-        if(-not [string]::IsNullOrWhiteSpace($v[0])){$text=$text.Replace($v[0],$v[1])}
-    }
-    return $text
-}
 function Get-CleanWindowsPowerShellModulePath{
     $paths=New-Object System.Collections.Generic.List[string]
     try{
@@ -580,16 +565,6 @@ exit 0
         try{
             $leaf=Split-Path -Leaf $root
             if($leaf -match '([0-9a-fA-F]{40})
-    if($null -eq $text){return ''}
-    foreach($v in @(
-        @([string]$env:USERPROFILE,'<USERPROFILE>'),
-        @([string]$env:USERNAME,'<USERNAME>'),
-        @([string]$env:COMPUTERNAME,'<COMPUTER>')
-    )){
-        if(-not [string]::IsNullOrWhiteSpace($v[0])){$text=$text.Replace($v[0],$v[1])}
-    }
-    return $text
-}
 function Get-CleanWindowsPowerShellModulePath{
     $paths=New-Object System.Collections.Generic.List[string]
     try{
@@ -847,16 +822,6 @@ function Record-SourceRevision{
     if(-not [string]::IsNullOrWhiteSpace($ExpectedSourceRevision)){
         $expected=$ExpectedSourceRevision.Trim().ToLowerInvariant()
         if($expected -notmatch '^[0-9a-f]{40}
-    if($null -eq $text){return ''}
-    foreach($v in @(
-        @([string]$env:USERPROFILE,'<USERPROFILE>'),
-        @([string]$env:USERNAME,'<USERNAME>'),
-        @([string]$env:COMPUTERNAME,'<COMPUTER>')
-    )){
-        if(-not [string]::IsNullOrWhiteSpace($v[0])){$text=$text.Replace($v[0],$v[1])}
-    }
-    return $text
-}
 function Get-CleanWindowsPowerShellModulePath{
     $paths=New-Object System.Collections.Generic.List[string]
     try{
@@ -1121,7 +1086,7 @@ function Sanitize-Text([string]$text){
     )){
         if(-not [string]::IsNullOrWhiteSpace($v[0])){$text=$text.Replace($v[0],$v[1])}
     }
-    return $text
+    return (Mask-NetworkEvidence $text)
 }
 function Get-CleanWindowsPowerShellModulePath{
     $paths=New-Object System.Collections.Generic.List[string]
