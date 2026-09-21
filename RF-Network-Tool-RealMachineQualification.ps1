@@ -2,6 +2,7 @@
 param(
     [ValidateSet('Safe','Gui','Full')][string]$Mode='Safe',
     [int]$InterfaceIndex=0,
+    [string]$ExpectedSourceRevision='',
     [string]$OutputRoot='',
     [switch]$AllowModuleInstall,
     [switch]$NoZip
@@ -30,6 +31,57 @@ function Mask-IPv4([string]$ip){
     if($ip -notmatch '^\d{1,3}(\.\d{1,3}){3}$'){return $ip}
     $p=$ip.Split('.');return "$($p[0]).$($p[1]).$($p[2]).x"
 }
+function Mask-NetworkEvidence([string]$text){
+    if($null -eq $text){return ''}
+    $text=[regex]::Replace($text,'(?i)\b(?:[0-9A-F]{2}[-:]){5}[0-9A-F]{2}\b','<MAC>')
+    $text=[regex]::Replace($text,'(?<!\d)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?!\d)',{
+        param($m)
+        $parts=$m.Value.Split('.')
+        try{$nums=@($parts|ForEach-Object {[int]$_})}catch{return $m.Value}
+        if(@($nums|Where-Object {$_ -lt 0 -or $_ -gt 255}).Count){return $m.Value}
+        if($m.Value -in @('127.0.0.1','0.0.0.0','255.255.255.255')){return $m.Value}
+        return "$($parts[0]).$($parts[1]).$($parts[2]).x"
+    })
+    return $text
+}
+function Get-SourceRevisionEvidence{
+    $revision='';$evidence='unknown'
+    try{
+        $envSha=([string]$env:GITHUB_SHA).Trim()
+        if($envSha -match '^[0-9a-fA-F]{40}$'){$revision=$envSha.ToLowerInvariant();$evidence='GITHUB_SHA'}
+    }catch{}
+    if(-not $revision){
+        try{
+            if(Test-Path -LiteralPath (Join-Path $root '.git')){
+                $git=Get-Command git.exe -ErrorAction SilentlyContinue
+                if($git){
+                    $out=& $git.Source -C $root rev-parse HEAD 2>$null
+                    $candidate=([string]$out).Trim()
+                    if($LASTEXITCODE -eq 0 -and $candidate -match '^[0-9a-fA-F]{40}$'){$revision=$candidate.ToLowerInvariant();$evidence='git-rev-parse'}
+                }
+            }
+        }catch{}
+    }
+    if(-not $revision){
+        try{
+            $leaf=Split-Path -Leaf $root
+            if($leaf -match '([0-9a-fA-F]{40})$'){$revision=$Matches[1].ToLowerInvariant();$evidence='root-folder-suffix'}
+        }catch{}
+    }
+    return [pscustomobject]@{revision=$revision;evidence=$evidence}
+}
+function Record-SourceRevision{
+    $src=Get-SourceRevisionEvidence
+    if(-not [string]::IsNullOrWhiteSpace($ExpectedSourceRevision)){
+        $expected=$ExpectedSourceRevision.Trim().ToLowerInvariant()
+        if($expected -notmatch '^[0-9a-f]{40}$'){Add-Result 'source_revision' 'FAIL' 'ExpectedSourceRevision must be an exact 40-character SHA.';return}
+        if(-not $src.revision){Add-Result 'source_revision' 'FAIL' 'Could not determine source revision for exact-head qualification.';return}
+        if($src.revision -ne $expected){Add-Result 'source_revision' 'FAIL' ("revision mismatch actual="+$src.revision+" expected="+$expected);return}
+        Add-Result 'source_revision' 'PASS' ($src.revision+" via "+$src.evidence);return
+    }
+    if($src.revision){Add-Result 'source_revision' 'PASS' ($src.revision+" via "+$src.evidence)}
+    else{Add-Result 'source_revision' 'SKIP' 'source revision unavailable; pass ExpectedSourceRevision for exact-head qualification'}
+}
 function Sanitize-Text([string]$text){
     if($null -eq $text){return ''}
     foreach($v in @(
@@ -39,7 +91,7 @@ function Sanitize-Text([string]$text){
     )){
         if(-not [string]::IsNullOrWhiteSpace($v[0])){$text=$text.Replace($v[0],$v[1])}
     }
-    return $text
+    return (Mask-NetworkEvidence $text)
 }
 function Get-CleanWindowsPowerShellModulePath{
     $paths=New-Object System.Collections.Generic.List[string]
@@ -205,13 +257,15 @@ function Write-MachineInfo{
             }
             $adapters += [pscustomobject]@{ifIndex=[int]$a.ifIndex;name=[string]$a.Name;description=[string]$a.InterfaceDescription;status=[string]$a.Status;hardwareInterface=[bool]$a.HardwareInterface;ipv4=$ips}
         }
+        $source=Get-SourceRevisionEvidence
         $snap=[ordered]@{
             schemaVersion=2;capturedAt=(Get-Date).ToString('o');mode=$Mode
+            sourceRevision=[string]$source.revision;sourceRevisionEvidence=[string]$source.evidence
             os=[ordered]@{caption=[string]$os.Caption;version=[string]$os.Version;build=[string]$os.BuildNumber;architecture=[string]$os.OSArchitecture}
             powershell=[ordered]@{version=[string]$PSVersionTable.PSVersion;edition=[string]$PSVersionTable.PSEdition;apartment=[string][Threading.Thread]::CurrentThread.ApartmentState}
             process=[ordered]@{userInteractive=[Environment]::UserInteractive;sessionId=[int](Get-Process -Id $PID).SessionId;is64Bit=[Environment]::Is64BitProcess}
             adapters=$adapters
-            privacy='Username/computer/profile/MAC omitted; IPv4 host octet masked.'
+            privacy='Username/computer/profile omitted; bundle IPv4/MAC redacted.'
         }
         [IO.File]::WriteAllText((Join-Path $runDir 'machine-info.json'),($snap|ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($true)))
         Add-Result 'machine_snapshot' 'PASS' ("$($os.Caption) build $($os.BuildNumber); PS $($PSVersionTable.PSVersion)")
@@ -234,6 +288,7 @@ function Finalize-Evidence{
     try{if($transcriptStarted){Stop-Transcript|Out-Null;$script:transcriptStarted=$false}}catch{}
     $summary=[ordered]@{
         schemaVersion=2;generatedAt=(Get-Date).ToString('o');mode=$Mode
+        sourceRevision=[string](Get-SourceRevisionEvidence).revision;sourceRevisionEvidence=[string](Get-SourceRevisionEvidence).evidence
         results=$results.ToArray()
         pass=@($results.ToArray()|Where-Object status -eq 'PASS').Count
         fail=@($results.ToArray()|Where-Object status -eq 'FAIL').Count
@@ -262,6 +317,7 @@ try{
     try{Start-Transcript -LiteralPath $transcript -Force|Out-Null;$transcriptStarted=$true}catch{}
     Write-Host "Mode=$Mode InterfaceIndex=$InterfaceIndex Root=$root"
     Write-MachineInfo
+    Record-SourceRevision
     Parser-Sweep
     $tests=Join-Path $root 'tests'
     if(-not(Test-Path $tests)){Add-Result 'full_project_tests_present' 'FAIL' 'Use the FULL PROJECT package.'}
