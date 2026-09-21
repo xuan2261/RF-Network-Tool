@@ -5,6 +5,7 @@ MUC DICH
 - Cong cu portable nhe cho Windows, khong can cai dat.
 - PING nhieu IP/hostname co ten goi nho va luu lai sau khi mo lai.
 - RF/RJ45 UDP: nghe goi UDP, hien TEXT/HEX, RSSI/SNR neu payload co du lieu phu hop.
+- IPv6/NDP readiness: hien IPv6 local va Neighbor Discovery cache theo adapter theo che do read-only; khong quet address space IPv6.
 - NETWORK SCAN: FAST/BALANCED/DEEP, ICMP bat dong bo + Active ARP + Windows Neighbor + name discovery.
 - Device Details: thong tin mang, lich su, Discovery Evidence va common open TCP ports.
 - MONITORING: theo doi lien tuc RF/GPS/Jetson/router/switch bang persistent Ping Worker, khong khoa UI.
@@ -13,6 +14,7 @@ YEU CAU
 - Windows 10/11 (Windows PowerShell 5.1, .NET Framework 4.8/WinForms).
 - Mot so discovery/phat hien ten phu thuoc cau hinh firewall, AP isolation, VLAN, DNS/mDNS/SSDP cua thiet bi.
 - Active ARP chi phat hien truc tiep host IPv4 on-link; khac subnet/VLAN can Layer-3/routing discovery.
+- IPv6 foundation chi inventory dia chi local/NDP cache da co; khong brute-force subnet IPv6 va khong thay the routing/VLAN discovery.
 
 CHAY LAN DAU
 1. Giai nen toan bo ZIP vao mot thu muc thuong, vi du D:\Tools\RF-Network-Tool.
@@ -29,6 +31,7 @@ TAB PING - v1.4.2
 
 TAB RF / RJ45
 - Chon adapter, RF IP va UDP local port; Start UDP / Stop UDP.
+- Adapter diagnostics hien IPv6/prefix/scope va mot so NDP neighbor sample tu Windows neighbor cache; khong gui IPv6 probe de tao cache.
 - Payload hien TEXT/HEX; RSSI/SNR chi hien neu parser tim duoc field tu packet.
 - Ping RF chay nen qua Ping Worker nen van co the chuyen tab/resize trong luc ping.
 
