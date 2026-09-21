@@ -134,6 +134,8 @@ checks={
  'windows_launcher_e2e_v142':(root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').is_file(),
   'windows_machine_cleanliness_v142':(root/'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1').is_file(),
   'windows_machine_cleanliness_test_v142':(root/'tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1').is_file(),
+  'release_sbom_builder_v142':(root/'release_tools/build_sbom_v1_4_2.py').is_file(),
+  'release_sbom_test_v142':(root/'tests/release_sbom_test_v1_4_2.py').is_file(),
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():print(('PASS' if v else 'FAIL'),k)
