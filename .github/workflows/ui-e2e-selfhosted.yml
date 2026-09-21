@@ -43,6 +43,10 @@ jobs:
           New-Item -ItemType Directory -Path .\ci-artifacts\physical-safe -Force | Out-Null
           $actual | Set-Content -LiteralPath .\ci-artifacts\physical-safe\qualification-revision.txt -Encoding ASCII
 
+      - name: Pre-run runner cleanliness
+        shell: powershell
+        run: .\tests\WINDOWS_RUNNER_CLEANLINESS_v1_4_2.ps1 -Phase Pre -EvidencePath .\ci-artifacts\physical-safe\runner-cleanliness-pre.json
+
       - name: Interactive desktop preflight
         shell: powershell
         run: .\tests\WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1
@@ -96,6 +100,11 @@ jobs:
           if([int]$data.fail -ne 0){throw "Physical qualification recorded $($data.fail) failure(s)."}
           if(-not (Test-Path -LiteralPath (Join-Path $safeDir 'ui-tab-items.txt'))){throw 'ui-tab-items.txt evidence is missing.'}
           Write-Host 'PHYSICAL QUALIFICATION REQUIRED GATES PASSED'
+
+      - name: Post-run runner cleanliness
+        if: always()
+        shell: powershell
+        run: .\tests\WINDOWS_RUNNER_CLEANLINESS_v1_4_2.ps1 -Phase Post -EvidencePath .\ci-artifacts\physical-safe\runner-cleanliness-post.json
 
       - name: Remove raw physical-network evidence
         if: always()
