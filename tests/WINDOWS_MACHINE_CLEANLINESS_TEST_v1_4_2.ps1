@@ -31,7 +31,9 @@ $token=[guid]::NewGuid().ToString('N')
 $fixture=Join-Path $env:TEMP ('RFT-v142-test-cleanliness-fixture-'+$token)
 $stateDirty=Join-Path $env:TEMP ('RFT-cleanliness-test-dirty-'+$token+'.json')
 $stateLeak=Join-Path $env:TEMP ('RFT-cleanliness-test-leak-'+$token+'.json')
+$stateProcess=Join-Path $env:TEMP ('RFT-cleanliness-test-process-'+$token+'.json')
 $stateClean=Join-Path $env:TEMP ('RFT-cleanliness-test-clean-'+$token+'.json')
+$leakProc=$null
 
 try{
     New-Item -ItemType Directory -Path $fixture -Force|Out-Null
@@ -48,15 +50,29 @@ try{
     Assert-True (-not(Test-Path -LiteralPath $stateLeak)) 'Leak assertion removes state file'
     Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue
 
+    $rc=Invoke-Checker 'Snapshot' $stateProcess 1
+    Assert-True ($rc -eq 0 -and (Test-Path -LiteralPath $stateProcess)) 'Process-leak baseline snapshot succeeds'
+    $marker='RFT-v142-e2e-'+$token
+    $escapedMarker=$marker.Replace("'","''")
+    $processArgs="-NoProfile -NonInteractive -Command `"`$null='$escapedMarker'; Start-Sleep -Seconds 30`""
+    $leakProc=Start-Process -FilePath $psExe -ArgumentList $processArgs -WindowStyle Hidden -PassThru
+    Start-Sleep -Milliseconds 500
+    $rc=Invoke-Checker 'Assert' $stateProcess 1
+    Assert-True ($rc -ne 0) 'Post-run process leak fails closed'
+    Assert-True (-not(Test-Path -LiteralPath $stateProcess)) 'Process-leak assertion removes state file'
+    if($null -ne $leakProc){try{if(-not $leakProc.HasExited){$leakProc.Kill();$leakProc.WaitForExit(5000)}}catch{};try{$leakProc.Dispose()}catch{};$leakProc=$null}
+
     $rc=Invoke-Checker 'Snapshot' $stateClean 1
     Assert-True ($rc -eq 0 -and (Test-Path -LiteralPath $stateClean)) 'Second clean baseline snapshot succeeds'
     $rc=Invoke-Checker 'Assert' $stateClean 1
     Assert-True ($rc -eq 0) 'Clean post-run assertion succeeds'
     Assert-True (-not(Test-Path -LiteralPath $stateClean)) 'Clean assertion removes state file'
 }finally{
+    if($null -ne $leakProc){try{if(-not $leakProc.HasExited){$leakProc.Kill();$leakProc.WaitForExit(5000)}}catch{};try{$leakProc.Dispose()}catch{}}
     Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $stateDirty -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $stateLeak -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $stateProcess -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $stateClean -Force -ErrorAction SilentlyContinue
 }
 
