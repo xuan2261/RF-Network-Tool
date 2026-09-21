@@ -26,6 +26,7 @@ checks={
  'ci_chaos_gate':'WINDOWS_CHAOS_TEST_v1_4_2.ps1' in ci,
  'ci_performance_gate':'WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1' in ci,
  'ci_launcher_e2e':'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly' in ci,
+ 'ci_ipv6_ndp_readiness':'IPv6/NDP read-only readiness' in ci and 'WINDOWS_IPV6_NDP_READINESS_v1_4_2.ps1' in ci,
  'ci_real_machine_safe_smoke':'Real-machine qualification harness SAFE smoke' in ci and 'RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -NoZip' in ci and 'real-machine-results/**' in ci,
  'ci_hosted_ui_diagnostic_only':ci.count('WINDOWS_LAUNCHER_E2E_v1_4_2.ps1')==1 and 'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly' in ci,
  'ci_package_needs_runtime':'needs: [static-contracts, windows-runtime]' in ci,
