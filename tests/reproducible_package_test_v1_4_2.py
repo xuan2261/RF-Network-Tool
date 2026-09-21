@@ -20,7 +20,7 @@ def build(project,run_id):
  env['GITHUB_RUN_ID']=str(run_id)
  subprocess.run([sys.executable,str(project/'release_tools'/'build_release_v1_4_2.py')],cwd=project,env=env,check=True,stdout=subprocess.DEVNULL)
  out=project.parent
- return out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip',out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'
+ p=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip'\n z=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'\n return p,z,p.with_suffix('.spdx.json'),z.with_suffix('.spdx.json')
 
 def perturb_mtimes(project):
  t=1_900_000_000
