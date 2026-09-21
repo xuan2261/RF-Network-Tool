@@ -134,6 +134,8 @@ checks={
  'windows_launcher_e2e_v142':(root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').is_file(),
   'windows_machine_cleanliness_v142':(root/'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1').is_file(),
   'windows_machine_cleanliness_test_v142':(root/'tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1').is_file(),
+  'windows_ipv6_ndp_readiness_v142':(root/'tests/WINDOWS_IPV6_NDP_READINESS_v1_4_2.ps1').is_file(),
+  'ipv6_ndp_readiness_runtime':all(x in mt for x in ['function Get-AdapterIPv6Diagnostics','Get-NetIPAddress','Get-NetNeighbor','IPv6     : $ipv6Text','NDP      : $ndpText']),
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():print(('PASS' if v else 'FAIL'),k)
