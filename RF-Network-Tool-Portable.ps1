@@ -988,6 +988,7 @@ function Add-ScanHistoryRecord($state) {
             PingConcurrency=$(if($metrics -and $metrics.PSObject.Properties['EffectivePingConcurrency']){[int]$metrics.EffectivePingConcurrency}else{0})
             RetryConcurrency=$(if($metrics -and $metrics.PSObject.Properties['EffectiveRetryConcurrency']){[int]$metrics.EffectiveRetryConcurrency}else{0})
             ArpConcurrency=$(if($metrics -and $metrics.PSObject.Properties['EffectiveArpConcurrency']){[int]$metrics.EffectiveArpConcurrency}else{0})
+            IPv6Neighbors=$(if($state.PSObject.Properties['ipv6Neighbors']){@($state.ipv6Neighbors).Count}else{0})
         }
         $script:ScanHistory=@($record)+@($script:ScanHistory | Where-Object {[string]$_.RunId -ne [string]$record.RunId} | Select-Object -First 49)
         Save-ScanHistory
@@ -2929,11 +2930,12 @@ $scanWorkerTimer.Add_Tick({
             }
 
             $phaseLabel=switch([string]$state.phase){
-                'icmp-fast' {'1/4 Ping nhanh toàn dải'}
-                'icmp-retry' {'2/4 Ping retry thích ứng'}
-                'icmp-retry-skipped' {'2/4 Bỏ retry theo FAST profile'}
-                'arp-active' {'3/4 Active ARP toàn dải'}
-                'neighbor-merge' {'4/4 Hợp nhất Neighbor/ARP cache'}
+                'icmp-fast' {'1/5 Ping nhanh toàn dải'}
+                'icmp-retry' {'2/5 Ping retry thích ứng'}
+                'icmp-retry-skipped' {'2/5 Bỏ retry theo FAST profile'}
+                'arp-active' {'3/5 Active ARP toàn dải'}
+                'neighbor-merge' {'4/5 Hợp nhất Neighbor/ARP cache'}
+                'ipv6-neighbor-snapshot' {'5/5 Snapshot IPv6 NDP thụ động'}
                 'done' {'Hoàn tất discovery cơ bản'}
                 'cancelled' {'Đã dừng'}
                 'error' {'Lỗi scan worker'}
@@ -2946,13 +2948,15 @@ $scanWorkerTimer.Add_Tick({
                 elseif($state.phase -eq 'icmp-retry-skipped'){$pct=50}
                 elseif($state.phase -eq 'arp-active'){$pct=50+[Math]::Min(40,[int](40*[int]$state.done/[int]$state.total))}
                 elseif($state.phase -eq 'neighbor-merge'){$pct=95}
+                elseif($state.phase -eq 'ipv6-neighbor-snapshot'){$pct=98}
                 elseif($state.complete){$pct=100}
             }
             $scanProgress.Value=[Math]::Max(0,[Math]::Min(100,$pct))
-            $lblScanStatus.Text="$phaseLabel | $([int]$state.online) Online | $([int]$state.seen) L2 Seen | $(@($state.results).Count) thiết bị"
+            $ipv6Count=if($state.PSObject.Properties['ipv6Neighbors']){@($state.ipv6Neighbors).Count}else{0}
+            $lblScanStatus.Text="$phaseLabel | $([int]$state.online) Online | $([int]$state.seen) L2 Seen | NDP6 $ipv6Count | $(@($state.results).Count) thiết bị IPv4"
             $elapsedText=if($state.PSObject.Properties['elapsedMs']){"$([Math]::Round(([int]$state.elapsedMs)/1000.0,1))s"}else{'-'}
             $profileText=if($state.PSObject.Properties['profile']){[string]$state.profile}else{$script:CurrentScanProfile}
-            $lblScanSummary.Text="$profileText | Online $([int]$state.online) | L2 $([int]$state.seen) | Total $(@($state.results).Count) | $elapsedText"
+            $lblScanSummary.Text="$profileText | Online $([int]$state.online) | L2 $([int]$state.seen) | NDP6 $ipv6Count | IPv4 $(@($state.results).Count) | $elapsedText"
 
             if([bool]$state.complete){
                 $scanWorkerTimer.Stop()
@@ -2975,7 +2979,7 @@ $scanWorkerTimer.Add_Tick({
                     $profileName=if($state.PSObject.Properties['profile']){[string]$state.profile}else{$script:CurrentScanProfile}
                     $durationSec=20
                     if($state.metrics -and $state.metrics.PSObject.Properties['DiscoveryDurationSec']){$durationSec=[int]$state.metrics.DiscoveryDurationSec}
-                    Write-ScanLog $script:ScanLogFile "BASIC DONE Profile=$profileName Online=$([int]$state.online) L2Seen=$([int]$state.seen) Total=$(@($state.results).Count) ElapsedMs=$([int]$state.elapsedMs)"
+                    Write-ScanLog $script:ScanLogFile "BASIC DONE Profile=$profileName Online=$([int]$state.online) L2Seen=$([int]$state.seen) IPv6Neighbors=$ipv6Count TotalIPv4=$(@($state.results).Count) ElapsedMs=$([int]$state.elapsedMs)"
                     $started=$false
                     if($gridScan.Rows.Count -gt 0 -and $script:ScanContext -and $durationSec -gt 0){
                         $started=Start-DiscoveryWorker @($script:ScanResults) $script:ScanContext.Gateway $script:ScanContext.LocalIP $profileName $durationSec
@@ -2987,7 +2991,7 @@ $scanWorkerTimer.Add_Tick({
                         $discoveryTimer.Start()
                     } else {
                         $btnStopScan.Enabled=$false
-                        $lblScanStatus.Text="Hoàn tất $profileName | Online $([int]$state.online) | L2 Seen $([int]$state.seen) | Total $(@($state.results).Count)"
+                        $lblScanStatus.Text="Hoàn tất $profileName | Online $([int]$state.online) | L2 Seen $([int]$state.seen) | NDP6 $ipv6Count | IPv4 $(@($state.results).Count)"
                     }
                 }
                 Add-ScanHistoryRecord $state
@@ -3384,7 +3388,7 @@ Cách dùng:
    • FAST: ưu tiên tốc độ; ICMP nhanh + Active ARP + Neighbor, bỏ ICMP retry dài; name discovery ngắn.
    • BALANCED: mặc định; có retry thích ứng và name discovery trung bình.
    • DEEP: timeout/quan sát dài hơn, concurrency bảo thủ hơn và name discovery đầy đủ.
-4. Scan engine chạy ở process nền nên UI vẫn thao tác được. PASS 1 ping nhanh toàn dải trước; PASS 2 retry thích ứng nếu profile cho phép; PASS 3 Active ARP; PASS 4 hợp nhất Neighbor cache. Concurrency của retry/ARP được tự giảm khi mạng phản hồi chậm hoặc tỷ lệ ICMP thấp.
+4. Scan engine chạy ở process nền nên UI vẫn thao tác được. PASS 1 ping nhanh toàn dải trước; PASS 2 retry thích ứng nếu profile cho phép; PASS 3 Active ARP; PASS 4 hợp nhất Neighbor cache IPv4; PASS 5 chụp thụ động IPv6 NDP/Neighbor trên đúng interface. Tool không brute-force hay sinh dải địa chỉ IPv6. Concurrency của retry/ARP được tự giảm khi mạng phản hồi chậm hoặc tỷ lệ ICMP thấp.
 5. Thiết bị trả ICMP được đánh dấu Online. Thiết bị chặn ping nhưng trả ARP được đánh dấu L2 Seen thay vì bị bỏ sót.
 6. Sau discovery cơ bản, helper tên chạy nền theo Profile (FAST khoảng 8s, BALANCED khoảng 20s, DEEP khoảng 45s) để bổ sung DNS/PTR, mDNS/DNS-SD và SSDP/UPnP; ping -a/NetBIOS được bỏ trong FAST để giảm độ trễ. PING alias/History chỉ là fallback.
 7. Nếu các giao thức trên không công bố tên, tool giữ PING alias/History hoặc Unknown.
@@ -3405,6 +3409,7 @@ Nguồn tên trong cột NAME SOURCE:
 Trạng thái:
 • Online: ping phản hồi.
 • L2 Seen: Active ARP/Neighbor xác nhận thiết bị cùng local subnet nhưng ICMP không trả lời.
+• NDP6: số IPv6 neighbor đã có trong Windows neighbor cache trên interface được chọn; đây là snapshot thụ động, chưa phải danh sách đầy đủ mọi host IPv6.
 
 Mỗi lần quét ghi logs\scan-*.log. Giới hạn an toàn: khuyến nghị /24; bản portable không tự quét mạng rất lớn.
 '@
