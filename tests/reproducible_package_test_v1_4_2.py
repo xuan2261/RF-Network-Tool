@@ -20,7 +20,9 @@ def build(project,run_id):
  env['GITHUB_RUN_ID']=str(run_id)
  subprocess.run([sys.executable,str(project/'release_tools'/'build_release_v1_4_2.py')],cwd=project,env=env,check=True,stdout=subprocess.DEVNULL)
  out=project.parent
- p=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip'\n z=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'\n return p,z,p.with_suffix('.spdx.json'),z.with_suffix('.spdx.json')
+ p=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip'
+ z=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'
+ return p,z,p.with_suffix('.spdx.json'),z.with_suffix('.spdx.json')
 
 def perturb_mtimes(project):
  t=1_900_000_000
@@ -44,8 +46,8 @@ with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
  (project/'logs').mkdir(exist_ok=True); (project/'logs'/'runtime.log').write_text('private runtime log',encoding='utf-8')
  (project/'oui-data').mkdir(exist_ok=True); (project/'oui-data'/'cache.txt').write_text('runtime cache',encoding='utf-8')
  (project/'real-machine-results').mkdir(exist_ok=True); (project/'real-machine-results'/'machine-info.json').write_text('{"machine":"private"}',encoding='utf-8')
- p1,z1=build(project,111111)
- first=(sha(p1),sha(z1))
+ p1,z1,ps1,zs1=build(project,111111)
+ first=(sha(p1),sha(z1),sha(ps1),sha(zs1))
  manifest=json.loads((project/'RELEASE_MANIFEST_v1.4.2.json').read_text(encoding='utf-8'))
  checks={
   'manifest_has_stable_source_revision':manifest.get('verification',{}).get('sourceRevision')=='repro-source-revision',
@@ -67,10 +69,12 @@ with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
   'oui-data/cache.txt','real-machine-results/machine-info.json'
  } & manifest_files)
  perturb_mtimes(project)
- p2,z2=build(project,999999)
- second=(sha(p2),sha(z2))
+ p2,z2,ps2,zs2=build(project,999999)
+ second=(sha(p2),sha(z2),sha(ps2),sha(zs2))
  checks['project_zip_byte_reproducible']=first[0]==second[0]
  checks['portable_zip_byte_reproducible']=first[1]==second[1]
+ checks['project_sbom_byte_reproducible']=first[2]==second[2]
+ checks['portable_sbom_byte_reproducible']=first[3]==second[3]
  failed=[k for k,v in checks.items() if not v]
  for k,v in checks.items(): print(('PASS' if v else 'FAIL'),k)
  print('TOTAL',len(checks),'FAILED',len(failed))
