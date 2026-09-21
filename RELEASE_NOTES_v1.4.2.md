@@ -28,7 +28,9 @@ For normal use, download **`RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip`*
 
 The **PROJECT.zip** asset contains the full source/tests/workflows and is intended for development or auditing rather than day-to-day use.
 
-The release also publishes **`SHA256SUMS.txt`** so the downloaded ZIP can be checked against the exact CI-produced asset.
+The release also publishes **`SHA256SUMS.txt`** so the downloaded ZIP and companion SBOM can be checked against the exact CI-produced assets.
+
+Each PROJECT/PORTABLE ZIP has a deterministic **SPDX 2.3 JSON SBOM** companion. The SBOM is derived from the exact ZIP contents, binds every archived file to SHA-1/SHA-256 checksums, and binds the package to the release ZIP SHA-256.
 
 ## Additional hardening in the release pipeline
 
@@ -36,6 +38,7 @@ The release also publishes **`SHA256SUMS.txt`** so the downloaded ZIP can be che
 - synthetic /24 scan and 128-target persistent PingWorker throughput are gated on Windows Server 2022 and 2025;
 - high-confidence secret/dangerous workflow patterns are audited;
 - release ZIPs receive GitHub build-provenance attestations and are verified before publication;
+- each release ZIP also receives a GitHub SBOM attestation using its deterministic SPDX 2.3 document, and CI verifies the SPDX predicate before upload/publication;
 - GitHub Releases publication runs only after the complete static + Windows + package chain has passed on a push to `main`.
 
 Full interactive WinForms UIAutomation remains **NOT YET VERIFIED** until a logged-in self-hosted Windows runner labeled `rft-interactive` executes that workflow successfully.
