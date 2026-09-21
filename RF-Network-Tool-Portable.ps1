@@ -3417,7 +3417,7 @@ BẮT ĐẦU NHANH
 3. Nếu tool không mở: chạy RUN-DIAGNOSTIC.cmd, sau đó xem thư mục logs.
 4. Dùng các tab theo nhu cầu:
    • PING: lưu IP/hostname, đặt tên gợi nhớ và ping nhanh.
-   • RF / RJ45: nghe dữ liệu UDP từ thiết bị RF qua Ethernet/RJ45.
+   • RF / RJ45: nghe dữ liệu UDP từ thiết bị RF qua Ethernet/RJ45; đồng thời hiển thị inventory IPv6 + NDP cache read-only của card mạng, không quét dải IPv6.
    • NETWORK SCAN: quét thiết bị trong LAN và xem Device Details.
    • MONITORING: theo dõi liên tục các target đã lưu bằng Ping Worker nền.
 
@@ -3449,7 +3449,7 @@ TAB RF / RJ45 UDP
 Mục đích: nhận datagram UDP từ thiết bị RF nối qua Ethernet/RJ45.
 
 Cách dùng:
-1. Chọn đúng card mạng đang nối với thiết bị RF.
+1. Chọn đúng card mạng đang nối với thiết bị RF. Khung Card mạng hiển thị IPv4, IPv6 local và NDP neighbor cache hiện có của adapter. Đây là inventory read-only từ Windows; tool không sinh dải địa chỉ hoặc chủ động quét IPv6.
 2. Nhập IP/Host RF nếu cần lọc nguồn.
 3. Nhập UDP local port đúng với Destination Port mà thiết bị RF đang gửi tới.
 4. Nhấn Start UDP.
