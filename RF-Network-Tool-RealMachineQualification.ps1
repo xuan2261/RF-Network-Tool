@@ -271,6 +271,7 @@ try{
         $cleanlinessArgs="-StateFile `"$cleanlinessState`""
         Invoke-Step 'machine_cleanliness_baseline' $cleanlinessScript ("-Mode Snapshot "+$cleanlinessArgs) 30
         Invoke-Step 'windows_integration' (Join-Path $tests 'WINDOWS_INTEGRATION_TEST_v1_4_2.ps1') '' 180
+        Invoke-Step 'ipv6_ndp_readiness' (Join-Path $tests 'WINDOWS_IPV6_NDP_READINESS_v1_4_2.ps1') '' 60
         if(Ensure-PSScriptAnalyzer){Invoke-Step 'powershell_lint' (Join-Path $tests 'WINDOWS_LINT_GATE_v1_4_2.ps1') '' 180}
         else{Add-Result 'powershell_lint' 'SKIP' 'PSScriptAnalyzer 1.25.0 unavailable; GUI/FULL mode can install it.'}
         Invoke-Step 'chaos_recovery' (Join-Path $tests 'WINDOWS_CHAOS_TEST_v1_4_2.ps1') '' 180
