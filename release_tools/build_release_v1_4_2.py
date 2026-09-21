@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import hashlib,json,os,shutil,zipfile
+import hashlib,json,os,shutil,subprocess,sys,zipfile
 project=Path(__file__).resolve().parents[1]
 outroot=project.parent
 portable=outroot/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE'
@@ -99,5 +99,9 @@ def write_deterministic_zip(zpath,root):
    z.writestr(info,p.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=9)
 for zpath,root in [(project_zip,project),(portable_zip,portable)]:
  write_deterministic_zip(zpath,root)
-print(project_zip)
-print(portable_zip)
+sbom_builder=project/'release_tools'/'build_sbom_v1_4_2.py'
+subprocess.run([sys.executable,str(sbom_builder),str(project_zip),str(portable_zip)],check=True)
+project_sbom=project_zip.with_suffix('.spdx.json')
+portable_sbom=portable_zip.with_suffix('.spdx.json')
+for artifact in (project_zip,portable_zip,project_sbom,portable_sbom):
+ print(artifact)
