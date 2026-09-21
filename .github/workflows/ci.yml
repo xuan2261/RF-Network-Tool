@@ -147,7 +147,7 @@ jobs:
         run: |
           for f in ci-artifacts/release/*.zip; do
             ok=0
-            for attempt in 1 2 3 4 5; do
+            for _ in 1 2 3 4 5; do
               if gh attestation verify "$f" -R "$GITHUB_REPOSITORY"; then ok=1; break; fi
               sleep 3
             done
@@ -179,7 +179,7 @@ jobs:
       - name: Build public checksum file
         run: |
           cd release-assets
-          sha256sum *.zip | sort > SHA256SUMS.txt
+          sha256sum -- *.zip | sort > SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -eq 2
       - name: Publish or refresh v1.4.2 release
         env:
