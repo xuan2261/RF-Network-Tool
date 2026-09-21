@@ -54,7 +54,8 @@ jobs:
           $invokeArgs=@(
             '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
             '-File','.\RF-Network-Tool-RealMachineQualification.ps1',
-            '-Mode','Full','-AllowModuleInstall','-NoZip'
+            '-Mode','Full','-AllowModuleInstall','-NoZip',
+            '-ExpectedSourceRevision',$env:RFT_EXPECTED_SHA
           )
           if(-not [string]::IsNullOrWhiteSpace($env:RFT_INTERFACE_INDEX)){
             if($env:RFT_INTERFACE_INDEX -notmatch '^[1-9]\d*$'){throw 'interface_index must be a positive numeric InterfaceIndex.'}
@@ -81,6 +82,7 @@ jobs:
           $safe=[ordered]@{
             schemaVersion=1
             sourceRevision=$actual
+            harnessSourceRevision=[string]$data.sourceRevision
             mode=[string]$data.mode
             interactiveGui=if($gui){[string]$gui.status}else{'MISSING'}
             realLanFastBalanced=if($lan){[string]$lan.status}else{'MISSING'}
@@ -94,6 +96,7 @@ jobs:
           if(Test-Path -LiteralPath .\ci-artifacts\ui-tab-items.txt){
             Copy-Item -LiteralPath .\ci-artifacts\ui-tab-items.txt -Destination (Join-Path $safeDir 'ui-tab-items.txt') -Force
           }
+          if([string]$data.sourceRevision -ne $actual){throw "Harness source revision mismatch: summary=$($data.sourceRevision) checkout=$actual"}
           if([string]$data.mode -ne 'Full'){throw "Expected Full mode, got $($data.mode)"}
           if(-not $gui -or [string]$gui.status -ne 'PASS'){throw 'interactive_gui_e2e must PASS.'}
           if(-not $lan -or [string]$lan.status -ne 'PASS'){throw 'real_lan_fast_balanced must PASS; SKIP is not release qualification.'}
