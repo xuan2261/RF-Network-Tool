@@ -3,7 +3,8 @@ from pathlib import Path
 import hashlib,os,zipfile,json,sys
 root=Path(__file__).resolve().parents[1]; out=root.parent
 portable=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE'
-pzip=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip'; zportable=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'\npsbom=pzip.with_suffix('.spdx.json'); zsbom=zportable.with_suffix('.spdx.json')
+pzip=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PROJECT.zip'; zportable=out/'RF-Network-Tool-v1.4.2-FULL-QA-CI-E2E-PORTABLE.zip'
+psbom=pzip.with_suffix('.spdx.json'); zsbom=zportable.with_suffix('.spdx.json')
 manifest_name='RELEASE_MANIFEST_v1.4.2.json'
 required={
  'START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1',
@@ -61,7 +62,8 @@ checks={
  'project_release_manifest_no_vcs_metadata':all(not x.get('path','').startswith('.git/') for x in manifest.get('files',[])),
  'ci_manifest_windows_verified':(manifest.get('verification',{}).get('windowsRuntime','').startswith('EXECUTION PASS') if os.environ.get('RFT_WINDOWS_RUNTIME_VERIFIED')=='1' else manifest.get('verification',{}).get('windowsRuntime')=='NOT YET VERIFIED'),
  'project_zip_exists':pzip.is_file(),
- 'portable_zip_exists':zportable.is_file(),\n 'release_sboms_exist':psbom.is_file() and zsbom.is_file(),
+ 'portable_zip_exists':zportable.is_file(),
+ 'release_sboms_exist':psbom.is_file() and zsbom.is_file(),
  'project_zip_crc':False,
  'portable_zip_crc':False,
  'project_zip_top_folder':pzip.is_file() and zip_top_folder(pzip,root.name),
@@ -73,7 +75,8 @@ checks={
  'vbs_ascii_no_bom':not vbs.startswith(b'\xef\xbb\xbf') and all(x<128 for x in vbs),
  'cmd_ascii_no_bom':all(not b.startswith(b'\xef\xbb\xbf') and all(x<128 for x in b) for b in cmds),
  'windows_v142_tests_in_full':all((root/x).is_file() for x in ['RUN-REAL-MACHINE-QUALIFICATION.cmd','RF-Network-Tool-RealMachineQualification.ps1','tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','tests/WINDOWS_CHAOS_TEST_v1_4_2.ps1','tests/WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','tests/WINDOWS_REAL_LAN_TEST_v1_4_2.ps1','tests/WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1','tests/WINDOWS_LINT_GATE_v1_4_2.ps1','tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1','tests/WINDOWS_SMOKE_TEST_v1_4_2.md','tests/security_audit_v1_4_2.py','tests/real_machine_harness_contract_v1_4_2.py','tests/reproducible_package_test_v1_4_2.py','tests/release_sbom_test_v1_4_2.py','release_tools/build_sbom_v1_4_2.py']),
- 'release_sbom_tooling_in_full':all((root/x).is_file() for x in ['release_tools/build_sbom_v1_4_2.py','tests/release_sbom_test_v1_4_2.py']),\n 'ci_workflows_in_full':all((root/x).is_file() for x in ['.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml']),
+ 'release_sbom_tooling_in_full':all((root/x).is_file() for x in ['release_tools/build_sbom_v1_4_2.py','tests/release_sbom_test_v1_4_2.py']),
+ 'ci_workflows_in_full':all((root/x).is_file() for x in ['.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml']),
  'portable_no_dev_artifacts':portable.is_dir() and not any((portable/x).exists() for x in ['tests','plans','release_tools','.github','QA_REPORT_v1.4.2.md'])
 }
 for key,zp in [('project_zip_crc',pzip),('portable_zip_crc',zportable)]:
