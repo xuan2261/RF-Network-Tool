@@ -25,9 +25,21 @@ def sha_entries(rootdir):
 def verify_sha(rootdir):
  rows=sha_entries(rootdir)
  return bool(rows) and all((rootdir/rel).is_file() and sha(rootdir/rel)==digest for rel,digest in rows.items())
+EXCLUDED_DIRS={'.git','__pycache__','logs','oui-data','real-machine-results','ci-artifacts'}
+EXCLUDED_TOP_FILES={
+ 'RF-Network-Tool.targets.json','RF-Network-Tool.targets.txt',
+ 'RF-Network-Tool.device-history.json','RF-Network-Tool.discovery-targets.json','RF-Network-Tool.discovery-cache.json'
+}
 def is_excluded(rootdir,p):
  rel=p.relative_to(rootdir)
- return '.git' in rel.parts or '__pycache__' in rel.parts or p.suffix=='.pyc'
+ if any(part in EXCLUDED_DIRS for part in rel.parts): return True
+ if p.suffix in {'.pyc','.tmp'}: return True
+ if len(rel.parts)==1:
+  name=rel.name
+  if name in EXCLUDED_TOP_FILES: return True
+  if name.startswith('BUILD_CHECKS_v') and name.endswith('.json'): return True
+  if name.startswith('RELEASE_MANIFEST_v') and name.endswith('.json') and name!=manifest_name: return True
+ return False
 def expected_hash_files(rootdir):
  ex={'SHA256.txt',manifest_name}
  return {p.relative_to(rootdir).as_posix() for p in rootdir.rglob('*') if p.is_file() and p.relative_to(rootdir).as_posix() not in ex and not is_excluded(rootdir,p)}
@@ -66,8 +78,8 @@ checks={
  'portable_has_readme':(portable/'README.txt').is_file() and 'MONITORING' in (portable/'README.txt').read_text(encoding='utf-8-sig'),
  'vbs_ascii_no_bom':not vbs.startswith(b'\xef\xbb\xbf') and all(x<128 for x in vbs),
  'cmd_ascii_no_bom':all(not b.startswith(b'\xef\xbb\xbf') and all(x<128 for x in b) for b in cmds),
- 'windows_v142_tests_in_full':all((root/x).is_file() for x in ['RUN-REAL-MACHINE-QUALIFICATION.cmd','RF-Network-Tool-RealMachineQualification.ps1','tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','tests/WINDOWS_CHAOS_TEST_v1_4_2.ps1','tests/WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','tests/WINDOWS_REAL_LAN_TEST_v1_4_2.ps1','tests/WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1','tests/WINDOWS_LINT_GATE_v1_4_2.ps1','tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1','tests/WINDOWS_SMOKE_TEST_v1_4_2.md','tests/security_audit_v1_4_2.py','tests/real_machine_harness_contract_v1_4_2.py','tests/reproducible_package_test_v1_4_2.py','tests/version_contract.py','release_tools/build_release.py']),
- 'ci_workflows_in_full':all((root/x).is_file() for x in ['.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml']),
+ 'windows_v142_tests_in_full':all((root/x).is_file() for x in ['RUN-REAL-MACHINE-QUALIFICATION.cmd','RF-Network-Tool-RealMachineQualification.ps1','tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','tests/WINDOWS_CHAOS_TEST_v1_4_2.ps1','tests/WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','tests/WINDOWS_REAL_LAN_TEST_v1_4_2.ps1','tests/WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1','tests/WINDOWS_LINT_GATE_v1_4_2.ps1','tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1','tests/WINDOWS_SMOKE_TEST_v1_4_2.md','tests/security_audit_v1_4_2.py','tests/real_machine_harness_contract_v1_4_2.py','tests/reproducible_package_test_v1_4_2.py','tests/version_contract.py','release_tools/build_release.py']),
+ 'ci_workflows_in_full':all((root/x).is_file() for x in ['.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml','.github/actionlint.yaml']),
  'portable_no_dev_artifacts':portable.is_dir() and not any((portable/x).exists() for x in ['tests','plans','release_tools','.github','QA_REPORT_v1.4.2.md'])
 }
 for key,zp in [('project_zip_crc',pzip),('portable_zip_crc',zportable)]:
