@@ -15,6 +15,7 @@ function Initialize-MsaaInterop{
   if(-not ('RftMsaaBridge' -as [type])){
     Add-Type -ReferencedAssemblies @('Accessibility.dll') -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Accessibility;
 public static class RftMsaaBridge {
@@ -22,13 +23,68 @@ public static class RftMsaaBridge {
     private static extern int AccessibleObjectFromWindow(
         IntPtr hwnd, uint objectId, ref Guid iid,
         [MarshalAs(UnmanagedType.Interface)] out object accessible);
-    public static IAccessible GetClientAccessible(IntPtr hwnd) {
+
+    [DllImport("oleacc.dll")]
+    private static extern int AccessibleChildren(
+        IAccessible paccContainer, int iChildStart, int cChildren,
+        [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2), In, Out] object[] children,
+        out int obtained);
+
+    private static IAccessible GetClientAccessible(IntPtr hwnd) {
         Guid iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
         object value;
         int hr = AccessibleObjectFromWindow(hwnd, 0xFFFFFFFCu, ref iid, out value);
         if (hr < 0) Marshal.ThrowExceptionForHR(hr);
-        if (value == null) throw new InvalidOperationException("AccessibleObjectFromWindow returned null.");
-        return (IAccessible)value;
+        IAccessible accessible = value as IAccessible;
+        if (accessible == null) throw new InvalidOperationException("AccessibleObjectFromWindow did not return IAccessible.");
+        return accessible;
+    }
+
+    private static object[] GetChildren(IAccessible parent) {
+        int count = parent.accChildCount;
+        if (count <= 0) return new object[0];
+        object[] children = new object[count];
+        int obtained;
+        int hr = AccessibleChildren(parent, 0, count, children, out obtained);
+        if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+        if (obtained == count) return children;
+        object[] trimmed = new object[Math.Max(0, obtained)];
+        if (obtained > 0) Array.Copy(children, trimmed, obtained);
+        return trimmed;
+    }
+
+    private static string ChildName(IAccessible parent, object child) {
+        try {
+            IAccessible childAccessible = child as IAccessible;
+            if (childAccessible != null) return childAccessible.get_accName(0) ?? String.Empty;
+            int childId = Convert.ToInt32(child);
+            return parent.get_accName(childId) ?? String.Empty;
+        } catch {
+            return String.Empty;
+        }
+    }
+
+    public static string[] GetChildNames(IntPtr hwnd) {
+        IAccessible parent = GetClientAccessible(hwnd);
+        List<string> names = new List<string>();
+        foreach (object child in GetChildren(parent)) {
+            string name = ChildName(parent, child);
+            if (!String.IsNullOrWhiteSpace(name)) names.Add(name);
+        }
+        return names.ToArray();
+    }
+
+    public static bool InvokeChildByName(IntPtr hwnd, string desiredName) {
+        IAccessible parent = GetClientAccessible(hwnd);
+        foreach (object child in GetChildren(parent)) {
+            string name = ChildName(parent, child);
+            if (!String.Equals(name, desiredName, StringComparison.OrdinalIgnoreCase)) continue;
+            IAccessible childAccessible = child as IAccessible;
+            if (childAccessible != null) childAccessible.accDoDefaultAction(0);
+            else parent.accDoDefaultAction(Convert.ToInt32(child));
+            return true;
+        }
+        return false;
     }
 }
 '@
@@ -37,15 +93,14 @@ public static class RftMsaaBridge {
 function Get-MsaaTabModel([IntPtr]$handle){
   if($handle -eq [IntPtr]::Zero){return $null}
   Initialize-MsaaInterop
-  $acc=[RftMsaaBridge]::GetClientAccessible($handle)
   $children=New-Object System.Collections.Generic.List[object]
-  for($childId=1;$childId -le [int]$acc.accChildCount;$childId++){
-    try{
-      $name=Normalize-UiName ([string]$acc.get_accName([int]$childId))
-      if($name){[void]$children.Add([pscustomobject]@{ChildId=[int]$childId;Name=$name})}
-    }catch{}
+  foreach($rawName in @([RftMsaaBridge]::GetChildNames($handle))){
+    $name=Normalize-UiName ([string]$rawName)
+    if($name -and -not @($children|Where-Object {$_.Name -eq $name}).Count){
+      [void]$children.Add([pscustomobject]@{Name=$name})
+    }
   }
-  return [pscustomobject]@{Accessible=$acc;Children=@($children.ToArray())}
+  return [pscustomobject]@{Handle=$handle;Children=@($children.ToArray())}
 }
 function Get-VisibleExpectedPaneNames([object]$rootElement,[string[]]$expectedTabs){
   $found=New-Object System.Collections.Generic.List[string]
@@ -78,12 +133,11 @@ function Invoke-MsaaTabSelfTest{
     $names=@();if($model){$names=@($model.Children|ForEach-Object {$_.Name})}
     foreach($label in $expected){Assert-True ($names -contains (Normalize-UiName $label)) ("MSAA tab self-test name: "+$label)}
     if($model -and $model.Children.Count -ge 2){
-      $target=$model.Children|Where-Object {$_.Name -eq (Normalize-UiName $expected[1])}|Select-Object -First 1
-      if($target){$model.Accessible.accDoDefaultAction([int]$target.ChildId);[System.Windows.Forms.Application]::DoEvents();Start-Sleep -Milliseconds 100}
-      Assert-True ($tabs.SelectedIndex -eq 1) 'MSAA accDoDefaultAction switches page tab'
+      $invoked=[RftMsaaBridge]::InvokeChildByName([IntPtr]$tabs.Handle,[string]$expected[1])
+      [System.Windows.Forms.Application]::DoEvents();Start-Sleep -Milliseconds 100
+      Assert-True ($invoked -and $tabs.SelectedIndex -eq 1) 'MSAA accDoDefaultAction switches page tab'
     }else{Assert-True $false 'MSAA accDoDefaultAction switches page tab'}
   }finally{
-    if($model -and [Runtime.InteropServices.Marshal]::IsComObject($model.Accessible)){try{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($model.Accessible)}catch{}}
     try{$form.Close()}catch{};try{$form.Dispose()}catch{}
   }
   if($fail.Count){Write-Host ('FAILED: '+($fail -join ', ')) -ForegroundColor Red;exit 1}
@@ -174,8 +228,7 @@ try {
                   $visited=New-Object System.Collections.Generic.List[string]
                   foreach($expectedTab in $expectedTabs){
                     $child=$msaaModel.Children|Where-Object {$_.Name -eq $expectedTab}|Select-Object -First 1
-                    if($child){
-                      $msaaModel.Accessible.accDoDefaultAction([int]$child.ChildId)
+                    if($child -and [RftMsaaBridge]::InvokeChildByName([IntPtr]$msaaModel.Handle,[string]$expectedTab)){
                       Start-Sleep -Milliseconds 200
                       foreach($visibleName in @(Get-VisibleExpectedPaneNames $rootEl $expectedTabs)){
                         if(-not $visited.Contains($visibleName)){[void]$visited.Add($visibleName)}
@@ -188,9 +241,6 @@ try {
                 }
               }
             }catch{Write-Host ("MSAA tab fallback unavailable: "+$_.Exception.Message)}
-            finally{
-              if($msaaModel -and [Runtime.InteropServices.Marshal]::IsComObject($msaaModel.Accessible)){try{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($msaaModel.Accessible)}catch{}}
-            }
             if(-not $msaaSucceeded){
               $tabProvider='CtrlTab+UIAutomation.Pane fallback'
               try{
