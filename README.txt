@@ -1,11 +1,11 @@
-﻿RF & NETWORK DIAGNOSTIC TOOL - PORTABLE v1.4.3 RUNTIME INTEGRITY
+﻿RF & NETWORK DIAGNOSTIC TOOL - PORTABLE v1.5.0 RUNTIME INTEGRITY
 ================================================================
 
 MUC DICH
 - Cong cu portable nhe cho Windows, khong can cai dat.
 - PING nhieu IP/hostname co ten goi nho va luu lai sau khi mo lai.
 - RF/RJ45 UDP: nghe goi UDP, hien TEXT/HEX, RSSI/SNR neu payload co du lieu phu hop.
-- NETWORK SCAN: FAST/BALANCED/DEEP, ICMP bat dong bo + Active ARP + Windows Neighbor + name discovery.
+- NETWORK SCAN: FAST/BALANCED/DEEP, ICMP bat dong bo + Active ARP + Windows Neighbor IPv4 + snapshot IPv6 NDP thu dong + name discovery.
 - Device Details: thong tin mang, lich su, Discovery Evidence va common open TCP ports.
 - MONITORING: theo doi lien tuc RF/GPS/Jetson/router/switch bang persistent Ping Worker, khong khoa UI.
 
@@ -20,7 +20,7 @@ CHAY LAN DAU
 3. Neu PASS, dung START-RF-NETWORK-TOOL.vbs de mo GUI khong giu cua so CMD.
 4. Neu dang dung FULL PROJECT, co the chay RUN-TESTS.cmd de kiem tra Windows integration.
 
-TAB PING - v1.4.3
+TAB PING - v1.5.0
 - Them IP/hostname, tool tao ten mac dinh Default N; double-click/F2 o Name de sua.
 - Luu schemaVersion 2 vao RF-Network-Tool.targets.json; tu migrate du lieu cu.
 - Moi target = mot row DataGridView, tranh loi layout/don nhieu IP vao mot hang cua implementation cu.
@@ -37,10 +37,11 @@ TAB NETWORK SCAN
 - BALANCED: mac dinh, co ICMP retry va discovery vua phai.
 - DEEP: timeout/discovery dai hon cho mang embedded/RF/GPS/Jetson.
 - ICMP responder -> Online. Khong tra ICMP nhung tra ARP -> L2 Seen.
+- IPv6 NDP: chi doc neighbor cache tren dung interface; khong brute-force/khong sinh dai IPv6 va khong mutate neighbor table.
 - Worker scan nam ngoai UI process callback path; UI poll state theo runId/session de loai stale state.
 - Name discovery dung DNS/PTR, ping -a/NetBIOS (tuy profile), mDNS/DNS-SD, SSDP/UPnP va cache evidence.
 
-TAB MONITORING - v1.4.3
+TAB MONITORING - v1.5.0
 - Nguon target: danh sach da luu trong tab PING. Nhan Dong bo tu PING neu can cap nhat ten.
 - Moi target co ON/OFF rieng, interval 1/2/5/10/30 giay va tuy chon ALERT.
 - Metrics: STATUS, NOW, MIN, AVG, MAX, LOSS, UPTIME, DOWNTIME, OUTAGES, LAST CHANGE.
@@ -65,7 +66,7 @@ OPEN PORTS / DEEP ANALYSIS
 - Day khong phai full 1-65535 port scanner.
 - HTTP/UPnP LAN probe khong dung system proxy; redirect bi tat; XML DTD bi cam va response bi gioi han.
 
-IEEE OUI - v1.4.3
+IEEE OUI - v1.5.0
 - Nhan Update IEEE OUI de tai registry tu standards-oui.ieee.org qua HTTPS trong background Task Worker.
 - Worker kiem scheme/host sau redirect, gioi han kich thuoc va tao compact cache:
   RF-Network-Tool.oui-prefix-cache.v1.tsv
