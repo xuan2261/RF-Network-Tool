@@ -1,4 +1,4 @@
-﻿param([switch]$DiagnosticOnly,[int]$TimeoutSec=15)
+﻿param([switch]$DiagnosticOnly,[switch]$AccessibilitySelfTest,[int]$TimeoutSec=15)
 $ErrorActionPreference='Stop'
 $sourceRoot=Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $artifactDir=Join-Path $sourceRoot 'ci-artifacts';New-Item -ItemType Directory -Path $artifactDir -Force|Out-Null
@@ -10,6 +10,87 @@ $escapedVersion=[regex]::Escape($appVersion)
 $fail=New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$c,[string]$n){if($c){Write-Host "PASS $n" -ForegroundColor Green}else{Write-Host "FAIL $n" -ForegroundColor Red;[void]$fail.Add($n)}}
 function Normalize-UiName([string]$value){if($null -eq $value){return ''};return (($value -replace '&','' -replace '\s+',' ').Trim())}
+function Initialize-MsaaInterop{
+  Add-Type -AssemblyName Accessibility
+  if(-not ('RftMsaaBridge' -as [type])){
+    Add-Type -ReferencedAssemblies @('Accessibility.dll') -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Accessibility;
+public static class RftMsaaBridge {
+    [DllImport("oleacc.dll")]
+    private static extern int AccessibleObjectFromWindow(
+        IntPtr hwnd, uint objectId, ref Guid iid,
+        [MarshalAs(UnmanagedType.Interface)] out object accessible);
+    public static IAccessible GetClientAccessible(IntPtr hwnd) {
+        Guid iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
+        object value;
+        int hr = AccessibleObjectFromWindow(hwnd, 0xFFFFFFFCu, ref iid, out value);
+        if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+        if (value == null) throw new InvalidOperationException("AccessibleObjectFromWindow returned null.");
+        return (IAccessible)value;
+    }
+}
+'@
+  }
+}
+function Get-MsaaTabModel([IntPtr]$handle){
+  if($handle -eq [IntPtr]::Zero){return $null}
+  Initialize-MsaaInterop
+  $acc=[RftMsaaBridge]::GetClientAccessible($handle)
+  $children=New-Object System.Collections.Generic.List[object]
+  for($childId=1;$childId -le [int]$acc.accChildCount;$childId++){
+    try{
+      $name=Normalize-UiName ([string]$acc.get_accName([int]$childId))
+      if($name){[void]$children.Add([pscustomobject]@{ChildId=[int]$childId;Name=$name})}
+    }catch{}
+  }
+  return [pscustomobject]@{Accessible=$acc;Children=@($children.ToArray())}
+}
+function Get-VisibleExpectedPaneNames([object]$rootElement,[string[]]$expectedTabs){
+  $found=New-Object System.Collections.Generic.List[string]
+  $paneCond=New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Pane)
+  $panes=$rootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants,$paneCond)
+  foreach($pane in $panes){
+    $paneName=try{Normalize-UiName ([string]$pane.Current.Name)}catch{''}
+    $paneOffscreen=try{[bool]$pane.Current.IsOffscreen}catch{$true}
+    if($paneName -and -not $paneOffscreen -and $paneName -in $expectedTabs -and -not $found.Contains($paneName)){[void]$found.Add($paneName)}
+  }
+  return @($found.ToArray())
+}
+function Invoke-MsaaTabSelfTest{
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+  $expected=@('PING','RF / RJ45','NETWORK SCAN','MONITORING','HƯỚNG DẪN')
+  $form=New-Object System.Windows.Forms.Form
+  $tabs=New-Object System.Windows.Forms.TabControl
+  $form.ShowInTaskbar=$false
+  $form.StartPosition=[System.Windows.Forms.FormStartPosition]::Manual
+  $form.Location=New-Object System.Drawing.Point(-30000,-30000)
+  $tabs.Dock=[System.Windows.Forms.DockStyle]::Fill
+  foreach($label in $expected){[void]$tabs.TabPages.Add((New-Object System.Windows.Forms.TabPage($label)))}
+  [void]$form.Controls.Add($tabs)
+  $model=$null
+  try{
+    $form.Show();[System.Windows.Forms.Application]::DoEvents()
+    $model=Get-MsaaTabModel ([IntPtr]$tabs.Handle)
+    Assert-True ($null -ne $model) 'MSAA tab self-test obtains IAccessible'
+    $names=@();if($model){$names=@($model.Children|ForEach-Object {$_.Name})}
+    foreach($label in $expected){Assert-True ($names -contains (Normalize-UiName $label)) ("MSAA tab self-test name: "+$label)}
+    if($model -and $model.Children.Count -ge 2){
+      $target=$model.Children|Where-Object {$_.Name -eq (Normalize-UiName $expected[1])}|Select-Object -First 1
+      if($target){$model.Accessible.accDoDefaultAction([int]$target.ChildId);[System.Windows.Forms.Application]::DoEvents();Start-Sleep -Milliseconds 100}
+      Assert-True ($tabs.SelectedIndex -eq 1) 'MSAA accDoDefaultAction switches page tab'
+    }else{Assert-True $false 'MSAA accDoDefaultAction switches page tab'}
+  }finally{
+    if($model -and [Runtime.InteropServices.Marshal]::IsComObject($model.Accessible)){try{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($model.Accessible)}catch{}}
+    try{$form.Close()}catch{};try{$form.Dispose()}catch{}
+  }
+  if($fail.Count){Write-Host ('FAILED: '+($fail -join ', ')) -ForegroundColor Red;exit 1}
+  Write-Host 'MSAA TAB ACCESSIBILITY SELF-TEST PASSED' -ForegroundColor Green
+  exit 0
+}
+if($AccessibilitySelfTest){Invoke-MsaaTabSelfTest}
 function Invoke-Captured([string]$exe,[string]$argumentString,[int]$timeoutMs=20000){
   $psi=New-Object Diagnostics.ProcessStartInfo;$psi.FileName=$exe;$psi.Arguments=$argumentString;$psi.UseShellExecute=$false;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true;$psi.CreateNoWindow=$true
   $p=New-Object Diagnostics.Process;$p.StartInfo=$psi;[void]$p.Start();if(-not $p.WaitForExit($timeoutMs)){try{$p.Kill()}catch{};throw "Process timeout: $exe $argumentString"};$o=$p.StandardOutput.ReadToEnd();$e=$p.StandardError.ReadToEnd();$rc=$p.ExitCode;$p.Dispose();return [pscustomobject]@{ExitCode=$rc;Out=$o;Err=$e}
@@ -76,29 +157,61 @@ try {
             }
             $navigationExercised=$true
           }else{
-            $tabProvider='CtrlTab+UIAutomation.Pane fallback'
+            $msaaSucceeded=$false;$msaaModel=$null
             try{
-              Add-Type -AssemblyName System.Windows.Forms
-              Add-Type -AssemblyName Microsoft.VisualBasic
-              try{[Microsoft.VisualBasic.Interaction]::AppActivate([int]$p.Id)}catch{}
-              try{$rootEl.SetFocus()}catch{}
-              Start-Sleep -Milliseconds 200
-              $fallbackNames=New-Object System.Collections.Generic.List[string]
-              $paneCond=New-Object System.Windows.Automation.PropertyCondition -ArgumentList @([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Pane)
-              for($cycle=0;$cycle -lt 5;$cycle++){
-                $panes=$rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants,$paneCond)
-                foreach($pane in $panes){
-                  $paneName=try{Normalize-UiName ([string]$pane.Current.Name)}catch{''}
-                  $paneOffscreen=try{[bool]$pane.Current.IsOffscreen}catch{$true}
-                  if($paneName -and -not $paneOffscreen -and $paneName -in $expectedTabs -and -not $fallbackNames.Contains($paneName)){[void]$fallbackNames.Add($paneName)}
-                }
-                if($cycle -lt 4){[System.Windows.Forms.SendKeys]::SendWait('^{TAB}');Start-Sleep -Milliseconds 300}
+              $allNative=$rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+              $nativeTab=$null
+              foreach($candidate in $allNative){
+                $cls=try{[string]$candidate.Current.ClassName}catch{''}
+                $hwnd=try{[int]$candidate.Current.NativeWindowHandle}catch{0}
+                if($hwnd -ne 0 -and $cls -like '*SysTabControl32*'){$nativeTab=$candidate;break}
               }
-              foreach($n in $fallbackNames){if(-not $names.Contains($n)){[void]$names.Add($n)}}
-              $navigationExercised=($fallbackNames.Count -ge $expectedTabs.Count)
-            }catch{
-              Write-Host ("Tab fallback failed: "+$_.Exception.Message)
-              [void]$fail.Add('Tab keyboard fallback')
+              if($null -ne $nativeTab){
+                $msaaModel=Get-MsaaTabModel ([IntPtr][int]$nativeTab.Current.NativeWindowHandle)
+                $msaaNames=@();if($msaaModel){$msaaNames=@($msaaModel.Children|ForEach-Object {$_.Name})}
+                $missingMsaa=@($expectedTabs|Where-Object {$_ -notin $msaaNames})
+                if($msaaModel -and $missingMsaa.Count -eq 0){
+                  $visited=New-Object System.Collections.Generic.List[string]
+                  foreach($expectedTab in $expectedTabs){
+                    $child=$msaaModel.Children|Where-Object {$_.Name -eq $expectedTab}|Select-Object -First 1
+                    if($child){
+                      $msaaModel.Accessible.accDoDefaultAction([int]$child.ChildId)
+                      Start-Sleep -Milliseconds 200
+                      foreach($visibleName in @(Get-VisibleExpectedPaneNames $rootEl $expectedTabs)){
+                        if(-not $visited.Contains($visibleName)){[void]$visited.Add($visibleName)}
+                      }
+                    }
+                  }
+                  foreach($n in $msaaNames){if(-not $names.Contains($n)){[void]$names.Add($n)}}
+                  $navigationExercised=($visited.Count -ge $expectedTabs.Count)
+                  if($navigationExercised){$tabProvider='MSAA.SysTabControl32';$msaaSucceeded=$true}
+                }
+              }
+            }catch{Write-Host ("MSAA tab fallback unavailable: "+$_.Exception.Message)}
+            finally{
+              if($msaaModel -and [Runtime.InteropServices.Marshal]::IsComObject($msaaModel.Accessible)){try{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($msaaModel.Accessible)}catch{}}
+            }
+            if(-not $msaaSucceeded){
+              $tabProvider='CtrlTab+UIAutomation.Pane fallback'
+              try{
+                Add-Type -AssemblyName System.Windows.Forms
+                Add-Type -AssemblyName Microsoft.VisualBasic
+                try{[Microsoft.VisualBasic.Interaction]::AppActivate([int]$p.Id)}catch{}
+                try{$rootEl.SetFocus()}catch{}
+                Start-Sleep -Milliseconds 200
+                $fallbackNames=New-Object System.Collections.Generic.List[string]
+                for($cycle=0;$cycle -lt 5;$cycle++){
+                  foreach($paneName in @(Get-VisibleExpectedPaneNames $rootEl $expectedTabs)){
+                    if(-not $fallbackNames.Contains($paneName)){[void]$fallbackNames.Add($paneName)}
+                  }
+                  if($cycle -lt 4){[System.Windows.Forms.SendKeys]::SendWait('^{TAB}');Start-Sleep -Milliseconds 300}
+                }
+                foreach($n in $fallbackNames){if(-not $names.Contains($n)){[void]$names.Add($n)}}
+                $navigationExercised=($fallbackNames.Count -ge $expectedTabs.Count)
+              }catch{
+                Write-Host ("Tab fallback failed: "+$_.Exception.Message)
+                [void]$fail.Add('Tab keyboard fallback')
+              }
             }
           }
           $names.ToArray()|Set-Content -LiteralPath (Join-Path $artifactDir 'ui-tab-items.txt') -Encoding UTF8
