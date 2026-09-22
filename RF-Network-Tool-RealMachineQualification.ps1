@@ -40,7 +40,23 @@ function Mask-NetworkEvidence([string]$text){
         param($m)
         $candidate=$m.Value
         $parseCandidate=$candidate
-        if($candidate -match '^(.*)%\d+
+        if($candidate -match '^(.*)%\d+$'){$parseCandidate=$Matches[1]}
+        $parsed=$null
+        if(-not [Net.IPAddress]::TryParse($parseCandidate,[ref]$parsed)){return $candidate}
+        if($parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetworkV6){return $candidate}
+        if($parsed.Equals([Net.IPAddress]::IPv6Any) -or $parsed.Equals([Net.IPAddress]::IPv6Loopback)){return $candidate}
+        return '<IPv6>'
+    })
+    $text=[regex]::Replace($text,'(?<!\d)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?!\d)',{
+        param($m)
+        $parts=$m.Value.Split('.')
+        try{$nums=@($parts|ForEach-Object {[int]$_})}catch{return $m.Value}
+        if(@($nums|Where-Object {$_ -lt 0 -or $_ -gt 255}).Count){return $m.Value}
+        if($m.Value -in @('127.0.0.1','0.0.0.0','255.255.255.255')){return $m.Value}
+        return "$($parts[0]).$($parts[1]).$($parts[2]).x"
+    })
+    return $text
+}
 function Get-SourceRevisionEvidence{
     $revision='';$evidence='unknown'
     try{
