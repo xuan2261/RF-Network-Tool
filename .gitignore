@@ -1,11 +1,13 @@
 logs/
 oui-data/
+real-machine-results/
+ci-artifacts/
 RF-Network-Tool.targets.json
 RF-Network-Tool.targets.txt
 RF-Network-Tool.device-history.json
 RF-Network-Tool.discovery-targets.json
 RF-Network-Tool.discovery-cache.json
 *.tmp
-BUILD_CHECKS_v1.4.2.json
-RELEASE_MANIFEST_v1.4.2.json
+BUILD_CHECKS_v*.json
+RELEASE_MANIFEST_v*.json
 SHA256.txt
