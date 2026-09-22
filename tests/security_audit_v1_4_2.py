@@ -6,7 +6,8 @@ runtime=[
  'RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-PingWorker.ps1',
  'RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-TaskWorker.ps1',
  'START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RUN-TESTS.cmd',
- 'release_tools/build_release.py','release_tools/build_release_v1_4_2.py','.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml'
+ 'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1',
+ 'release_tools/build_release.py','release_tools/build_release_v1_4_2.py','.github/actionlint.yaml','.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml'
 ]
 secret_patterns={
  'github_token':re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{40,})\b'),
