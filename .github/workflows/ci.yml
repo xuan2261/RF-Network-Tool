@@ -304,6 +304,8 @@ jobs:
           expected={
               f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PORTABLE.zip',
               f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PROJECT.zip',
+              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PORTABLE.spdx.json',
+              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PROJECT.spdx.json',
               'SHA256SUMS.txt',
           }
           assert d['tagName']==tag, d
