@@ -9,12 +9,14 @@ ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 e2e=(root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 clean=(root/'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 clean_test=(root/'tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1').read_text(encoding='utf-8-sig')
+integration=(root/'tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 checks={
  'wrapper_safe_default':'set "MODE=%~1"' in cmd and 'set "MODE=SAFE"' in cmd,
  'wrapper_gui_optin':'-Mode Gui -AllowModuleInstall' in cmd,
  'wrapper_full_optin':'-Mode Full -AllowModuleInstall' in cmd,
  'wrapper_exact_revision_optin':all(x in cmd for x in ['EXPECTED_SHA=%~2','-ExpectedSourceRevision %EXPECTED_SHA%']),
  'orchestrator_modes':"[ValidateSet('Safe','Gui','Full')]" in ps,
+ 'integration_parses_qualification_harness':all(x in integration for x in ["RF-Network-Tool-RealMachineQualification.ps1","@('RealMachineQualification',$qualification)"]),
  'orchestrator_bundle':'RF-Network-Tool-REAL-MACHINE-LOGS-' in ps and 'Compress-Archive' in ps and 'Get-FileHash -Algorithm SHA256' in ps,
  'orchestrator_privacy':all(x in ps for x in ['<USERPROFILE>','<USERNAME>','<COMPUTER>','<MAC>','<IPv6>','Mask-NetworkEvidence','bundle IPv4/IPv6/MAC redacted.']),
  'orchestrator_ipv6_privacy_selftest':all(x in ps for x in ['SanitizerSelfTest','2001:db8::1234','fe80::abcd%36','fd12:3456::5','IPV6 EVIDENCE SANITIZER SELF-TEST PASSED']),
