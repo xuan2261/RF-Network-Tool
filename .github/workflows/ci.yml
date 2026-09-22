@@ -24,6 +24,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.13'
+      - name: Lint GitHub Actions workflows
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          curl -fL --retry 3 --proto '=https' --proto-redir '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" "$url"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
       - name: Compile Python tests
         run: python -m compileall -q tests release_tools
       - name: Run active static/model suite
@@ -63,6 +75,9 @@ jobs:
       - name: Launcher diagnostic E2E
         shell: powershell
         run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
+      - name: Machine cleanliness fail-closed qualification
+        shell: powershell
+        run: .\tests\WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1
       - name: Real-machine qualification harness SAFE smoke
         if: matrix.os == 'windows-2022'
         shell: powershell
@@ -150,7 +165,7 @@ jobs:
         run: |
           for f in ci-artifacts/release/*.zip; do
             ok=0
-            for attempt in 1 2 3 4 5; do
+            for _ in 1 2 3 4 5; do
               if gh attestation verify "$f" -R "$GITHUB_REPOSITORY"; then ok=1; break; fi
               sleep 3
             done
@@ -195,7 +210,7 @@ jobs:
       - name: Build public checksum file
         run: |
           cd release-assets
-          sha256sum *.zip | sort > SHA256SUMS.txt
+          sha256sum -- *.zip | sort > SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -eq 2
       - name: Create draft, verify assets, then publish
         env:
