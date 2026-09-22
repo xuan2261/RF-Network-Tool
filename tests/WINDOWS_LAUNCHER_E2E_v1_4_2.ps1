@@ -84,7 +84,8 @@ try {
                 $panes=$rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants,$paneCond)
                 foreach($pane in $panes){
                   $paneName=try{Normalize-UiName ([string]$pane.Current.Name)}catch{''}
-                  if($paneName -and $paneName -in $expectedTabs -and -not $fallbackNames.Contains($paneName)){[void]$fallbackNames.Add($paneName)}
+                  $paneOffscreen=try{[bool]$pane.Current.IsOffscreen}catch{$true}
+                  if($paneName -and -not $paneOffscreen -and $paneName -in $expectedTabs -and -not $fallbackNames.Contains($paneName)){[void]$fallbackNames.Add($paneName)}
                 }
                 if($cycle -lt 4){[System.Windows.Forms.SendKeys]::SendWait('^{TAB}');Start-Sleep -Milliseconds 300}
               }
