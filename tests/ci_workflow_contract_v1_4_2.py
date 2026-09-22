@@ -63,18 +63,7 @@ checks={
  'ui_sanitized_evidence':all(x in ui for x in ['physical-safe','physical-qualification-summary.json','ui-tab-items.txt','Remove raw physical-network evidence','Remove-Item -LiteralPath .\\real-machine-results','Remove-Item -LiteralPath .\\ci-artifacts']),
  'ui_input_not_injected_into_run':'${{ inputs.interface_index }}' not in ui.split('run: |',1)[-1] and 'RFT_INTERFACE_INDEX: ${{ inputs.interface_index }}' in ui,
  'ui_structural_uniqueness':all(ui.count(x)==1 for x in ['- name: Exact revision guard','- name: Run full physical qualification','- name: Stage safe evidence and assert required physical gates','- name: Upload sanitized physical evidence']),
- 'ui_positive_interface_validation':"if($env:RFT_INTERFACE_INDEX -notmatch '^[1-9]\\d* 'ci_node24_actions':ci.count('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1')>=3 and ci.count('actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97')>=2 and ci.count('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a')>=2,
- 'ui_node24_actions':'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' in ui and 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' in ui,
- 'ui_script_isolated_sandbox':"RFT-versioned-e2e-" in e2e,
- 'ui_script_uses_uia':'System.Windows.Automation.AutomationElement' in e2e,
- 'ui_capture_avoids_args_automatic_var':"[string]$args" not in e2e and "[string]$argumentString" in e2e,
- 'ui_capture_forwards_argument_string':"$psi.Arguments=$argumentString" in e2e,
-}
-failed=[k for k,v in checks.items() if not v]
-for k,v in checks.items(): print(('PASS' if v else 'FAIL'),k)
-print('TOTAL',len(checks),'FAILED',len(failed))
-sys.exit(1 if failed else 0)
-)" in ui,
+ 'ui_positive_interface_validation':"if($env:RFT_INTERFACE_INDEX -notmatch '^[1-9]\\d*$')" in ui,
  'ui_stale_evidence_cleared_before_revision':ui.index('Remove-Item -LiteralPath .\\real-machine-results') < ui.index('$actual=(git rev-parse HEAD)'),
  'ui_raw_network_evidence_not_uploaded':'path: ci-artifacts/physical-safe/**' in ui and 'path: ci-artifacts/**' not in ui and 'real-machine-results/**' not in ui,
  'ci_node24_actions':ci.count('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1')>=3 and ci.count('actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97')>=2 and ci.count('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a')>=2,
