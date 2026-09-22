@@ -7,6 +7,7 @@ This candidate keeps the v1.4.2 runtime behavior while hardening versioning, pac
 - `VERSION` is the single source of truth for the application/release version.
 - Launcher, GUI title, scan-engine log, HTTP User-Agent, package names, manifest names, CI artifacts, and release tag validation derive from `VERSION`.
 - Release ZIPs remain byte-reproducible and receive GitHub artifact provenance attestations.
+- Each PROJECT/PORTABLE ZIP also receives a deterministic SPDX 2.3 JSON SBOM derived from the exact ZIP bytes and a dedicated SBOM attestation verified before publication.
 - Tag publication is generic for semantic tags (`v*.*.*`) but fails closed unless the pushed tag exactly equals `v` + `VERSION`.
 - Release publication is create-only: an existing tag/release is never clobbered.
 - Publication uses a draft first so all assets are attached before the release is published.

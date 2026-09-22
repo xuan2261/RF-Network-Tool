@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import hashlib,json,os,re,shutil,zipfile
+import hashlib,json,os,re,shutil,subprocess,sys,zipfile
 project=Path(__file__).resolve().parents[1]
 outroot=project.parent
 version=(project/'VERSION').read_text(encoding='ascii').strip()
@@ -98,5 +98,6 @@ def write_deterministic_zip(zpath,root):
    info.external_attr=(0o100644 << 16);info.extra=b'';info.comment=b''
    z.writestr(info,p.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=9)
 for zpath,root in [(project_zip,project),(portable_zip,portable)]: write_deterministic_zip(zpath,root)
-print(project_zip)
-print(portable_zip)
+sbom_builder=project/'release_tools'/'build_sbom.py'
+subprocess.run([sys.executable,str(sbom_builder),'--version',version,'--source-date-epoch','315532800',str(project_zip),str(portable_zip)],check=True)
+for artifact in (project_zip,portable_zip,project_zip.with_suffix('.spdx.json'),portable_zip.with_suffix('.spdx.json')): print(artifact)
