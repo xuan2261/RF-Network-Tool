@@ -35,8 +35,28 @@ def normalized_zip(zp):
   infos=z.infolist()
   return bool(infos) and all(i.date_time==(1980,1,1,0,0,0) and i.extra==b'' for i in infos)
 
+DIRTY_DIRS=('logs','oui-data','real-machine-results','ci-artifacts')
+DIRTY_FILES=(
+ 'RF-Network-Tool.targets.json','RF-Network-Tool.targets.txt','RF-Network-Tool.device-history.json',
+ 'RF-Network-Tool.discovery-targets.json','RF-Network-Tool.discovery-cache.json',
+ f'BUILD_CHECKS_v{version}.json','scratch.tmp','RELEASE_MANIFEST_v0.0.0.json'
+)
+def seed_dirty_workspace(project):
+ for d in DIRTY_DIRS:
+  p=project/d;p.mkdir(parents=True,exist_ok=True);(p/'local-only.txt').write_text('local generated artifact',encoding='utf-8')
+ for name in DIRTY_FILES:(project/name).write_text('local generated artifact',encoding='utf-8')
+def forbidden_rel(rel):
+ parts=Path(rel).parts
+ if any(p in DIRTY_DIRS for p in parts): return True
+ return Path(rel).name in DIRTY_FILES
+def project_zip_has_no_dirty_artifacts(zp,project_name):
+ with zipfile.ZipFile(zp) as z:
+  rels=[n[len(project_name)+1:] for n in z.namelist() if n.startswith(project_name+'/') and not n.endswith('/')]
+  return not any(forbidden_rel(rel) for rel in rels)
+
 with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
  tmp=Path(td); project=tmp/'RF-Network-Tool'; copy_project(project)
+ seed_dirty_workspace(project)
  p1,z1=build(project,111111)
  first=(sha(p1),sha(z1))
  manifest=json.loads((project/f'RELEASE_MANIFEST_{tag}.json').read_text(encoding='utf-8'))
@@ -45,6 +65,8 @@ with tempfile.TemporaryDirectory(prefix='rft-repro-') as td:
   'manifest_has_no_run_id':'githubActionsRunId' not in manifest.get('verification',{}),
   'project_zip_metadata_normalized':normalized_zip(p1),
   'portable_zip_metadata_normalized':normalized_zip(z1),
+  'project_zip_excludes_local_generated_artifacts':project_zip_has_no_dirty_artifacts(p1,project.name),
+  'manifest_excludes_local_generated_artifacts':not any(forbidden_rel(x.get('path','')) for x in manifest.get('files',[])),
  }
  perturb_mtimes(project)
  p2,z2=build(project,999999)
