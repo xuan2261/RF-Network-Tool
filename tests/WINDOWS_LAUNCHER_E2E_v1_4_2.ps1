@@ -66,9 +66,9 @@ function Invoke-MsaaTabSelfTest{
   $tabs=New-Object System.Windows.Forms.TabControl
   $form.ShowInTaskbar=$false
   $form.StartPosition=[System.Windows.Forms.FormStartPosition]::Manual
-  $form.Location=New-Object System.Drawing.Point(-30000,-30000)
+  $form.Location=New-Object System.Drawing.Point -ArgumentList @(-30000,-30000)
   $tabs.Dock=[System.Windows.Forms.DockStyle]::Fill
-  foreach($label in $expected){[void]$tabs.TabPages.Add((New-Object System.Windows.Forms.TabPage($label)))}
+  foreach($label in $expected){[void]$tabs.TabPages.Add((New-Object System.Windows.Forms.TabPage -ArgumentList $label))}
   [void]$form.Controls.Add($tabs)
   $model=$null
   try{
