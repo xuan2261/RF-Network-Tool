@@ -75,13 +75,20 @@ public static class RftMsaaBridge {
     }
 
     public static bool InvokeChildByName(IntPtr hwnd, string desiredName) {
+        const int SELFLAG_TAKESELECTION = 0x2;
         IAccessible parent = GetClientAccessible(hwnd);
         foreach (object child in GetChildren(parent)) {
             string name = ChildName(parent, child);
             if (!String.Equals(name, desiredName, StringComparison.OrdinalIgnoreCase)) continue;
             IAccessible childAccessible = child as IAccessible;
-            if (childAccessible != null) childAccessible.accDoDefaultAction(0);
-            else parent.accDoDefaultAction(Convert.ToInt32(child));
+            if (childAccessible != null) {
+                try { childAccessible.accDoDefaultAction(0); } catch { }
+                try { childAccessible.accSelect(SELFLAG_TAKESELECTION, 0); } catch { }
+            } else {
+                int childId = Convert.ToInt32(child);
+                try { parent.accDoDefaultAction(childId); } catch { }
+                try { parent.accSelect(SELFLAG_TAKESELECTION, childId); } catch { }
+            }
             return true;
         }
         return false;
