@@ -27,7 +27,7 @@ checks={
  'orchestrator_pssa_install_diagnostics':'psscriptanalyzer_install_diagnostics.txt' in ps and 'CleanPSModulePath=' in ps,
  'e2e_uia_title_normalization':all(x in e2e for x in ['Normalize-UiName',"-replace '&','' -replace '\\s+',' '",'^RF Network Diagnostic Tool - Portable v1\\.4\\.2']),
  'e2e_waits_for_tab_accessibility':all(x in e2e for x in ['$tabWait=[Diagnostics.Stopwatch]::StartNew()','$items.Count -ge 5','Start-Sleep -Milliseconds 200']),
- 'e2e_ctrl_tab_fallback':all(x in e2e for x in ['System.Windows.Forms.SendKeys','Microsoft.VisualBasic.Interaction]::AppActivate','ControlType]::Pane','CtrlTab+UIAutomation.Pane fallback','ui-tab-provider.txt','$navigationExercised']),
+ 'e2e_ctrl_tab_fallback':all(x in e2e for x in ['System.Windows.Forms.SendKeys','Microsoft.VisualBasic.Interaction]::AppActivate','ControlType]::Pane','Current.IsOffscreen','CtrlTab+UIAutomation.Pane fallback','ui-tab-provider.txt','$navigationExercised']),
  'e2e_requires_real_navigation':"Assert-True ($navigationExercised -and -not $p.HasExited) 'GUI survives tab navigation'" in e2e,
  'e2e_ui_tree_evidence':all(x in e2e for x in ['ui-tree-dump.txt','ProgrammaticName','AutomationId','ClassName']),
  'e2e_tab_name_normalization':'$normalizedExpected=Normalize-UiName $expected' in e2e,
