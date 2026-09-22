@@ -72,6 +72,9 @@ jobs:
       - name: Synthetic performance qualification
         shell: powershell
         run: .\tests\WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1
+      - name: Tab accessibility MSAA fallback self-test
+        shell: powershell
+        run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -AccessibilitySelfTest
       - name: Launcher diagnostic E2E
         shell: powershell
         run: .\tests\WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -DiagnosticOnly
