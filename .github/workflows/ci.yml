@@ -58,6 +58,9 @@ jobs:
       - name: Runtime integration on Windows PowerShell 5.1
         shell: powershell
         run: .\tests\WINDOWS_INTEGRATION_TEST_v1_4_2.ps1
+      - name: Evidence sanitizer IPv6 self-test
+        shell: powershell
+        run: .\RF-Network-Tool-RealMachineQualification.ps1 -SanitizerSelfTest -NoZip
       - name: Install pinned PSScriptAnalyzer
         shell: powershell
         run: |
