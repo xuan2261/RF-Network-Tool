@@ -22,6 +22,7 @@ checks={
  'generic_release_tags':"tags: ['v*.*.*']" in ci,
  'generic_release_fail_closed':'Tag/version mismatch' in ci and 'GITHUB_REF_NAME' in ci,
  'generic_release_draft_first':'--draft' in ci and '--draft=false' in ci,
+ 'repo_readme_current_version':(root/'README.md').is_file() and tag in (root/'README.md').read_text(encoding='utf-8'),
  'current_release_notes':(root/'RELEASE_NOTES.md').is_file() and tag in (root/'RELEASE_NOTES.md').read_text(encoding='utf-8'),
 }
 failed=[k for k,v in checks.items() if not v]
