@@ -2,11 +2,12 @@
 
 Portable Windows RF & network diagnostics tool.
 
-Current development baseline: **v1.5.0 IPv6/NDP foundation candidate**.
+Current development baseline: **v1.5.1 route-aware private multi-subnet scanning candidate**.
 
 The repository includes:
 - Windows PowerShell 5.1 / WinForms runtime
 - async scan/discovery/ping/task workers
+- opt-in route-aware private multi-subnet planning with bounded target expansion
 - Monitoring dashboard
 - static/model regression tests
 - Windows integration and launcher E2E tests
