@@ -32,6 +32,7 @@ ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 ui=(root/'.github/workflows/ui-e2e-selfhosted.yml').read_text(encoding='utf-8')
 qual=(root/'RF-Network-Tool-RealMachineQualification.ps1').read_text(encoding='utf-8-sig')
 route=(root/'RF-Network-Tool-RoutePlanner.ps1').read_text(encoding='utf-8-sig')
+route_live=(root/'tests/WINDOWS_ROUTE_SCOPE_LIVE_TEST_v1_5_1.ps1').read_text(encoding='utf-8-sig')
 uses=re.findall(r'(?m)^\s*-?\s*uses:\s*([^\s#]+)',ci+'\n'+ui)
 external=[u for u in uses if not u.startswith('./')]
 unpinned=[u for u in external if not re.search(r'@[0-9a-fA-F]{40}$',u)]
@@ -47,6 +48,7 @@ checks={
  'physical_evidence_ipv6_redaction':all(x in qual for x in ['<IPv6>','InterNetworkV6','SanitizerSelfTest','bundle IPv4/IPv6/MAC redacted.']),
  'route_planner_private_bounded':all(x in route for x in ['Get-NetRoute -AddressFamily IPv4 -InterfaceIndex $InterfaceIndex','Test-RftPrivateIPv4Range','MaxTotalHosts=1024','MaxAutoSubnets=4']),
  'route_planner_no_mutation':all(x not in route for x in ['New-NetRoute','Set-NetRoute','Remove-NetRoute','New-NetIPAddress','Set-NetIPAddress']),
+ 'route_live_evidence_sanitized':all(x in route_live for x in ['scopeCount','autoScopeCount','totalTargets','skippedReasonCounts']) and all(x not in route_live.split("$safe=[ordered]@{",1)[-1] for x in ['LocalIP=','Mac=','PrimaryCidr=','Gateway=']),
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():print(('PASS' if v else 'FAIL'),k)
