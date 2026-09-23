@@ -13,7 +13,7 @@ build=(root/'release_tools/build_release.py').read_text(encoding='utf-8')
 ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 checks={
  'version_semver':bool(re.fullmatch(r'\d+\.\d+\.\d+',version)),
- 'candidate_is_v143':version=='1.4.3',
+ 'candidate_is_v150':version=='1.5.0',
  'launcher_reads_version':all(x in launcher for x in ["Join-Path $BaseDir 'VERSION'",'$AppVersion','Launcher v$AppVersion']),
  'main_reads_version':all(x in main for x in ["Join-Path $BaseDir 'VERSION'",'$AppVersion','Portable v$AppVersion']),
  'workers_dynamic_useragent':all('$UserAgent' in x and 'RF-Network-Tool/1.4.2' not in x for x in [task,disc]),
@@ -22,6 +22,7 @@ checks={
  'generic_release_tags':"tags: ['v*.*.*']" in ci,
  'generic_release_fail_closed':'Tag/version mismatch' in ci and 'GITHUB_REF_NAME' in ci,
  'generic_release_draft_first':'--draft' in ci and '--draft=false' in ci,
+ 'repo_readme_current_version':(root/'README.md').is_file() and tag in (root/'README.md').read_text(encoding='utf-8'),
  'current_release_notes':(root/'RELEASE_NOTES.md').is_file() and tag in (root/'RELEASE_NOTES.md').read_text(encoding='utf-8'),
 }
 failed=[k for k,v in checks.items() if not v]

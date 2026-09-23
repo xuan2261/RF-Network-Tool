@@ -5,6 +5,7 @@ param(
     [string]$ExpectedSourceRevision='',
     [string]$OutputRoot='',
     [switch]$AllowModuleInstall,
+    [switch]$SanitizerSelfTest,
     [switch]$NoZip
 )
 
@@ -34,6 +35,18 @@ function Mask-IPv4([string]$ip){
 function Mask-NetworkEvidence([string]$text){
     if($null -eq $text){return ''}
     $text=[regex]::Replace($text,'(?i)\b(?:[0-9A-F]{2}[-:]){5}[0-9A-F]{2}\b','<MAC>')
+    $ipv6Pattern='(?i)(?<![0-9A-Fa-f:.])(?:[0-9A-Fa-f]{0,4}:){2,7}(?:[0-9A-Fa-f]{0,4}|(?:\d{1,3}\.){3}\d{1,3})(?:%\d+)?(?![0-9A-Fa-f:.])'
+    $text=[regex]::Replace($text,$ipv6Pattern,{
+        param($m)
+        $candidate=$m.Value
+        $parseCandidate=$candidate
+        if($candidate -match '^(.*)%\d+$'){$parseCandidate=$Matches[1]}
+        $parsed=$null
+        if(-not [Net.IPAddress]::TryParse($parseCandidate,[ref]$parsed)){return $candidate}
+        if($parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetworkV6){return $candidate}
+        if($parsed.Equals([Net.IPAddress]::IPv6Any) -or $parsed.Equals([Net.IPAddress]::IPv6Loopback)){return $candidate}
+        return '<IPv6>'
+    })
     $text=[regex]::Replace($text,'(?<!\d)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?!\d)',{
         param($m)
         $parts=$m.Value.Split('.')
@@ -92,6 +105,31 @@ function Sanitize-Text([string]$text){
         if(-not [string]::IsNullOrWhiteSpace($v[0])){$text=$text.Replace($v[0],$v[1])}
     }
     return (Mask-NetworkEvidence $text)
+}
+function Invoke-EvidenceSanitizerSelfTest{
+    $sample='global=2001:db8::1234 link=fe80::abcd%36 ula=fd12:3456::5 loop=::1 any=:: ipv4=10.20.30.40 mac=AA-BB-CC-DD-EE-FF'
+    $safe=Sanitize-Text $sample
+    $checks=[ordered]@{
+        globalIPv6Redacted=($safe -match 'global=<IPv6>')
+        linkLocalIPv6Redacted=($safe -match 'link=<IPv6>')
+        ulaIPv6Redacted=($safe -match 'ula=<IPv6>')
+        loopbackPreserved=($safe -match 'loop=::1')
+        unspecifiedPreserved=($safe -match 'any=::(?:\s|$)')
+        ipv4Redacted=($safe -match 'ipv4=10\.20\.30\.x')
+        macRedacted=($safe -match 'mac=<MAC>')
+        noRawGlobal=($safe -notmatch '2001:db8')
+        noRawLinkLocal=($safe -notmatch 'fe80::')
+        noRawUla=($safe -notmatch 'fd12:3456')
+    }
+    $failed=@($checks.GetEnumerator()|Where-Object {-not [bool]$_.Value}|ForEach-Object {$_.Key})
+    foreach($item in $checks.GetEnumerator()){Write-Host (('{0} {1}' -f $(if($item.Value){'PASS'}else{'FAIL'}),$item.Key))}
+    if($failed.Count){throw ('Evidence sanitizer self-test failed: '+($failed -join ', '))}
+    Write-Host 'IPV6 EVIDENCE SANITIZER SELF-TEST PASSED' -ForegroundColor Green
+}
+if($SanitizerSelfTest){
+    try{Invoke-EvidenceSanitizerSelfTest}
+    finally{Remove-Item -LiteralPath $runDir -Recurse -Force -ErrorAction SilentlyContinue}
+    exit 0
 }
 function Get-CleanWindowsPowerShellModulePath{
     $paths=New-Object System.Collections.Generic.List[string]
@@ -265,7 +303,7 @@ function Write-MachineInfo{
             powershell=[ordered]@{version=[string]$PSVersionTable.PSVersion;edition=[string]$PSVersionTable.PSEdition;apartment=[string][Threading.Thread]::CurrentThread.ApartmentState}
             process=[ordered]@{userInteractive=[Environment]::UserInteractive;sessionId=[int](Get-Process -Id $PID).SessionId;is64Bit=[Environment]::Is64BitProcess}
             adapters=$adapters
-            privacy='Username/computer/profile omitted; bundle IPv4/MAC redacted.'
+            privacy='Username/computer/profile omitted; bundle IPv4/IPv6/MAC redacted.'
         }
         [IO.File]::WriteAllText((Join-Path $runDir 'machine-info.json'),($snap|ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($true)))
         Add-Result 'machine_snapshot' 'PASS' ("$($os.Caption) build $($os.BuildNumber); PS $($PSVersionTable.PSVersion)")

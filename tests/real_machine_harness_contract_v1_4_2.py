@@ -9,14 +9,18 @@ ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 e2e=(root/'tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 clean=(root/'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 clean_test=(root/'tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1').read_text(encoding='utf-8-sig')
+integration=(root/'tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1').read_text(encoding='utf-8-sig')
 checks={
  'wrapper_safe_default':'set "MODE=%~1"' in cmd and 'set "MODE=SAFE"' in cmd,
  'wrapper_gui_optin':'-Mode Gui -AllowModuleInstall' in cmd,
  'wrapper_full_optin':'-Mode Full -AllowModuleInstall' in cmd,
  'wrapper_exact_revision_optin':all(x in cmd for x in ['EXPECTED_SHA=%~2','-ExpectedSourceRevision %EXPECTED_SHA%']),
  'orchestrator_modes':"[ValidateSet('Safe','Gui','Full')]" in ps,
+ 'integration_parses_qualification_harness':all(x in integration for x in ["RF-Network-Tool-RealMachineQualification.ps1","@('RealMachineQualification',$qualification)"]),
  'orchestrator_bundle':'RF-Network-Tool-REAL-MACHINE-LOGS-' in ps and 'Compress-Archive' in ps and 'Get-FileHash -Algorithm SHA256' in ps,
- 'orchestrator_privacy':all(x in ps for x in ['<USERPROFILE>','<USERNAME>','<COMPUTER>','<MAC>','Mask-NetworkEvidence','bundle IPv4/MAC redacted.']),
+ 'orchestrator_privacy':all(x in ps for x in ['<USERPROFILE>','<USERNAME>','<COMPUTER>','<MAC>','<IPv6>','Mask-NetworkEvidence','bundle IPv4/IPv6/MAC redacted.']),
+ 'orchestrator_ipv6_privacy_selftest':all(x in ps for x in ['SanitizerSelfTest','2001:db8::1234','fe80::abcd%36','fd12:3456::5','IPV6 EVIDENCE SANITIZER SELF-TEST PASSED']),
+ 'orchestrator_ipv6_sanitizer_function_complete':all(x in ps for x in ['[Net.IPAddress]::TryParse($parseCandidate,[ref]$parsed)',"return '<IPv6>'",'function Get-SourceRevisionEvidence']),
  'orchestrator_source_revision':all(x in ps for x in ['ExpectedSourceRevision','Get-SourceRevisionEvidence','root-folder-suffix','sourceRevision','source_revision']),
  'orchestrator_core_gates':all(x in ps for x in ['WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','WINDOWS_LINT_GATE_v1_4_2.ps1','WINDOWS_CHAOS_TEST_v1_4_2.ps1','WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','WINDOWS_LAUNCHER_E2E_v1_4_2.ps1']),
  'orchestrator_cleanliness_gates':all(x in ps for x in ['WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1','machine_cleanliness_baseline','machine_cleanliness_post','RFT-cleanliness-']),
@@ -26,6 +30,7 @@ checks={
  'cleanliness_state_removed':all(x in clean for x in ['Remove-StateFile','finally{','Unsupported machine-cleanliness state schema.']) and 'Remove-Item -LiteralPath $cleanlinessState' in ps,
  'cleanliness_failure_path_test':all(x in clean_test for x in ['Dirty baseline fails closed','Post-run temp leak fails closed','Process-leak baseline snapshot succeeds','Post-run process leak fails closed','Process-leak assertion removes state file','Clean post-run assertion succeeds','ALL WINDOWS MACHINE CLEANLINESS TESTS PASSED']),
  'ci_cleanliness_failure_path':'Machine cleanliness fail-closed qualification' in ci and 'WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1' in ci,
+ 'ci_ipv6_privacy_selftest':'Evidence sanitizer IPv6 self-test' in ci and 'RF-Network-Tool-RealMachineQualification.ps1 -SanitizerSelfTest -NoZip' in ci,
  'orchestrator_gui_gate':'WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1' in ps and "Mode -in @('Gui','Full')" in ps,
  'orchestrator_lan_skip':'skipExitCodes' in ps and '@(3)' in ps,
  'orchestrator_clean_winps_modulepath':all(x in ps for x in ['Start-CleanWindowsPowerShell','Remove-Item Env:PSModulePath','PowerShellGet -MinimumVersion 2.2.5','PSScriptAnalyzer -RequiredVersion 1.25.0']),
@@ -37,6 +42,7 @@ checks={
  'e2e_uia_title_normalization':all(x in e2e for x in ['Normalize-UiName',"-replace '&','' -replace '\\s+',' '",'$escapedVersion',"'VERSION'"]),
  'e2e_waits_for_tab_accessibility':all(x in e2e for x in ['$tabWait=[Diagnostics.Stopwatch]::StartNew()','$items.Count -ge 5','Start-Sleep -Milliseconds 200']),
  'e2e_msaa_tab_fallback':all(x in e2e for x in ['AccessibleObjectFromWindow','RftMsaaBridge','SysTabControl32','accDoDefaultAction','MSAA.SysTabControl32','Get-VisibleExpectedPaneNames']),
+ 'e2e_native_tab_selection_oracle':all(x in e2e for x in ['TCM_GETCURSEL','GetSelectedIndex','ui-tab-selection.txt','MSAA.SysTabControl32+TCM_GETCURSEL','Native TCM_GETCURSEL confirms selected tab']),
  'e2e_msaa_selftest':all(x in e2e for x in ['AccessibilitySelfTest','MSAA TAB ACCESSIBILITY SELF-TEST PASSED','MSAA accDoDefaultAction switches page tab']),
  'e2e_ctrl_tab_fallback':all(x in e2e for x in ['System.Windows.Forms.SendKeys','Microsoft.VisualBasic.Interaction]::AppActivate','ControlType]::Pane','Current.IsOffscreen','CtrlTab+UIAutomation.Pane fallback','ui-tab-provider.txt','$navigationExercised']),
  'e2e_requires_real_navigation':"Assert-True ($navigationExercised -and -not $p.HasExited) 'GUI survives tab navigation'" in e2e,

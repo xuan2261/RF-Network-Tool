@@ -30,6 +30,16 @@ public static class RftMsaaBridge {
         [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2), In, Out] object[] children,
         out int obtained);
 
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern IntPtr SendMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    private const uint TCM_FIRST = 0x1300;
+    private const uint TCM_GETCURSEL = TCM_FIRST + 11;
+
+    public static int GetSelectedIndex(IntPtr hwnd) {
+        return unchecked((int)SendMessage(hwnd, TCM_GETCURSEL, IntPtr.Zero, IntPtr.Zero).ToInt64());
+    }
+
     private static IAccessible GetClientAccessible(IntPtr hwnd) {
         Guid iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
         object value;
@@ -142,7 +152,9 @@ function Invoke-MsaaTabSelfTest{
     if($model -and $model.Children.Count -ge 2){
       $invoked=[RftMsaaBridge]::InvokeChildByName([IntPtr]$tabs.Handle,[string]$expected[1])
       [System.Windows.Forms.Application]::DoEvents();Start-Sleep -Milliseconds 100
+      $nativeSelected=[RftMsaaBridge]::GetSelectedIndex([IntPtr]$tabs.Handle)
       Assert-True ($invoked -and $tabs.SelectedIndex -eq 1) 'MSAA accDoDefaultAction switches page tab'
+      Assert-True ($nativeSelected -eq 1) 'Native TCM_GETCURSEL confirms selected tab'
     }else{Assert-True $false 'MSAA accDoDefaultAction switches page tab'}
   }finally{
     try{$form.Close()}catch{};try{$form.Dispose()}catch{}
@@ -233,18 +245,23 @@ try {
                 $missingMsaa=@($expectedTabs|Where-Object {$_ -notin $msaaNames})
                 if($msaaModel -and $missingMsaa.Count -eq 0){
                   $visited=New-Object System.Collections.Generic.List[string]
-                  foreach($expectedTab in $expectedTabs){
+                  $selectionEvidence=New-Object System.Collections.Generic.List[string]
+                  for($expectedIndex=0;$expectedIndex -lt $expectedTabs.Count;$expectedIndex++){
+                    $expectedTab=[string]$expectedTabs[$expectedIndex]
                     $child=$msaaModel.Children|Where-Object {$_.Name -eq $expectedTab}|Select-Object -First 1
-                    if($child -and [RftMsaaBridge]::InvokeChildByName([IntPtr]$msaaModel.Handle,[string]$expectedTab)){
+                    if($child -and [RftMsaaBridge]::InvokeChildByName([IntPtr]$msaaModel.Handle,$expectedTab)){
                       Start-Sleep -Milliseconds 200
-                      foreach($visibleName in @(Get-VisibleExpectedPaneNames $rootEl $expectedTabs)){
-                        if(-not $visited.Contains($visibleName)){[void]$visited.Add($visibleName)}
-                      }
+                      $selectedIndex=[RftMsaaBridge]::GetSelectedIndex([IntPtr]$msaaModel.Handle)
+                      [void]$selectionEvidence.Add(("{0}|expectedIndex={1}|selectedIndex={2}" -f $expectedTab,$expectedIndex,$selectedIndex))
+                      if($selectedIndex -eq $expectedIndex -and -not $visited.Contains($expectedTab)){[void]$visited.Add($expectedTab)}
+                    }else{
+                      [void]$selectionEvidence.Add(("{0}|expectedIndex={1}|invoke=false" -f $expectedTab,$expectedIndex))
                     }
                   }
+                  $selectionEvidence.ToArray()|Set-Content -LiteralPath (Join-Path $artifactDir 'ui-tab-selection.txt') -Encoding UTF8
                   foreach($n in $msaaNames){if(-not $names.Contains($n)){[void]$names.Add($n)}}
                   $navigationExercised=($visited.Count -ge $expectedTabs.Count)
-                  if($navigationExercised){$tabProvider='MSAA.SysTabControl32';$msaaSucceeded=$true}
+                  if($navigationExercised){$tabProvider='MSAA.SysTabControl32+TCM_GETCURSEL';$msaaSucceeded=$true}
                 }
               }
             }catch{Write-Host ("MSAA tab fallback unavailable: "+$_.Exception.Message)}

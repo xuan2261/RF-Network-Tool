@@ -7,6 +7,7 @@ $nameWorker=Join-Path $root 'RF-Network-Tool-DiscoveryWorker.ps1'
 $scanWorker=Join-Path $root 'RF-Network-Tool-ScanWorker.ps1'
 $pingWorker=Join-Path $root 'RF-Network-Tool-PingWorker.ps1'
 $taskWorker=Join-Path $root 'RF-Network-Tool-TaskWorker.ps1'
+$qualification=Join-Path $root 'RF-Network-Tool-RealMachineQualification.ps1'
 $fail=New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$condition,[string]$name){if($condition){Write-Host "PASS $name" -ForegroundColor Green}else{Write-Host "FAIL $name" -ForegroundColor Red;[void]$fail.Add($name)}}
 function Wait-Path([string]$path,[int]$timeoutMs=7000){$sw=[Diagnostics.Stopwatch]::StartNew();while($sw.ElapsedMilliseconds -lt $timeoutMs){if(Test-Path -LiteralPath $path){return $true};Start-Sleep -Milliseconds 80};return $false}
@@ -17,7 +18,7 @@ function Start-HiddenPs([string]$scriptPath,[string[]]$argumentList){
   $proc=New-Object Diagnostics.Process;$proc.StartInfo=$psi;if(-not $proc.Start()){throw "Cannot start $scriptPath"};return $proc
 }
 Assert-True ($PSVersionTable.PSEdition -eq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -eq 1) 'Windows PowerShell 5.1 runtime'
-foreach($spec in @(@('Main',$main),@('Launcher',$launcher),@('DiscoveryWorker',$nameWorker),@('ScanWorker',$scanWorker),@('PingWorker',$pingWorker),@('TaskWorker',$taskWorker))){
+foreach($spec in @(@('Main',$main),@('Launcher',$launcher),@('DiscoveryWorker',$nameWorker),@('ScanWorker',$scanWorker),@('PingWorker',$pingWorker),@('TaskWorker',$taskWorker),@('RealMachineQualification',$qualification))){
   $tokens=$null;$parseErrors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile($spec[1],[ref]$tokens,[ref]$parseErrors)
   Assert-True (-not $parseErrors -or $parseErrors.Count -eq 0) ("Parser "+$spec[0])
   if($parseErrors){foreach($pe in $parseErrors){Write-Host ("  line {0}: {1}" -f $pe.Extent.StartLineNumber,$pe.Message)}}

@@ -19,6 +19,7 @@ checks={
  'ci_actionlint_shell_fixes':'for _ in 1 2 3 4 5; do' in ci and 'sha256sum -- *.zip' in ci,
  'ci_windows_matrix':"os: [windows-2022, windows-2025]" in ci,
  'ci_ps51_integration':'WINDOWS_INTEGRATION_TEST_v1_4_2.ps1' in ci and 'shell: powershell' in ci,
+ 'ci_ipv6_evidence_sanitizer':'Evidence sanitizer IPv6 self-test' in ci and 'RF-Network-Tool-RealMachineQualification.ps1 -SanitizerSelfTest -NoZip' in ci,
  'ci_psscriptanalyzer_pinned':'PSScriptAnalyzer -RequiredVersion 1.25.0' in ci,
  'ci_lint_gate':'WINDOWS_LINT_GATE_v1_4_2.ps1' in ci,
  'ci_lint_high_signal_rules':all(x in lint for x in ['PSAvoidAssignmentToAutomaticVariable','PSPossibleIncorrectComparisonWithNull','PSScriptAnalyzer high-signal warnings']),

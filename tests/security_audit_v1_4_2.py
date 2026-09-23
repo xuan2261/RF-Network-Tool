@@ -4,7 +4,7 @@ import re,sys
 root=Path(__file__).resolve().parents[1]
 runtime=[
  'RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-PingWorker.ps1',
- 'RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-TaskWorker.ps1',
+ 'RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-TaskWorker.ps1','RF-Network-Tool-RealMachineQualification.ps1',
  'START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RUN-TESTS.cmd',
  'tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1',
  'release_tools/build_release.py','release_tools/build_release_v1_4_2.py','release_tools/build_sbom.py','tests/release_sbom_test_v1_4_2.py','.github/actionlint.yaml','.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml'
@@ -30,6 +30,7 @@ for rel in runtime:
   if rx.search(text):findings.append((rel,name,'matched'))
 ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 ui=(root/'.github/workflows/ui-e2e-selfhosted.yml').read_text(encoding='utf-8')
+qual=(root/'RF-Network-Tool-RealMachineQualification.ps1').read_text(encoding='utf-8-sig')
 uses=re.findall(r'(?m)^\s*-?\s*uses:\s*([^\s#]+)',ci+'\n'+ui)
 external=[u for u in uses if not u.startswith('./')]
 unpinned=[u for u in external if not re.search(r'@[0-9a-fA-F]{40}$',u)]
@@ -42,6 +43,7 @@ checks={
  'no_continue_on_error':'continue-on-error:' not in ci,
  'all_external_actions_pinned_sha':not unpinned and bool(external),
  'package_attestation_permissions':all(x in ci for x in ['id-token: write','attestations: write','contents: read']),
+ 'physical_evidence_ipv6_redaction':all(x in qual for x in ['<IPv6>','InterNetworkV6','SanitizerSelfTest','bundle IPv4/IPv6/MAC redacted.']),
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():print(('PASS' if v else 'FAIL'),k)

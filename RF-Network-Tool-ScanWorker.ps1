@@ -80,6 +80,8 @@ $fastAverageMs=0.0
 $effectivePingConcurrency=$pingConcurrency
 $effectiveRetryConcurrency=[Math]::Min($pingConcurrency,64)
 $effectiveArpConcurrency=$arpConcurrency
+$ipv6Neighbors=@()
+$ipv6NeighborError=''
 
 function Get-OrCreateResult([string]$ip) {
     if(-not $results.ContainsKey($ip)){
@@ -117,6 +119,7 @@ function Write-State([bool]$complete=$false,[bool]$cancelled=$false,[string]$err
             total=$total
             online=$online
             seen=$seen
+            ipv6Neighbors=@($ipv6Neighbors)
             updatedAt=(Get-Date).ToString('o')
             metrics=[ordered]@{
                 FastSuccessCount=$fastSuccessCount
@@ -125,6 +128,8 @@ function Write-State([bool]$complete=$false,[bool]$cancelled=$false,[string]$err
                 EffectivePingConcurrency=$effectivePingConcurrency
                 EffectiveRetryConcurrency=$effectiveRetryConcurrency
                 EffectiveArpConcurrency=$effectiveArpConcurrency
+                IPv6NeighborCount=@($ipv6Neighbors).Count
+                IPv6NeighborError=$ipv6NeighborError
                 RetryEnabled=$retryEnabled
                 DiscoveryMode=$discoveryMode
                 DiscoveryDurationSec=$discoveryDurationSec
@@ -345,9 +350,53 @@ try {
     } catch { Write-WorkerLog ('Get-NetNeighbor failed: '+$_.Exception.Message) }
     $done=$total;Write-State $false $false ''
 
+    # PASS 5: passive IPv6 Neighbor Discovery snapshot on the selected interface.
+    # Never enumerate the IPv6 address space; only report entries already observed by Windows NDP.
+    if(Test-Cancelled){$phase='cancelled';Write-State -complete $true -cancelled $true -errorMessage '';exit 0}
+    $phase='ipv6-neighbor-snapshot';$done=0;Write-State -complete $false -cancelled $false -errorMessage ''
+    try {
+        $ipv6Map=@{}
+        if(Get-Command -Name Get-NetNeighbor -ErrorAction SilentlyContinue){
+            $neighbors6=@(Get-NetNeighbor -AddressFamily IPv6 -InterfaceIndex $interfaceIndex -ErrorAction Stop | Where-Object -FilterScript {
+                $_.IPAddress -and $_.LinkLayerAddress -and $_.LinkLayerAddress -ne '00-00-00-00-00-00' -and $_.State -notin @('Unreachable','Incomplete')
+            })
+            foreach($n in $neighbors6){
+                $ip=[string]$n.IPAddress
+                $mac=Format-Mac ([string]$n.LinkLayerAddress)
+                if(-not $mac){continue}
+                try {
+                    $parsed=[Net.IPAddress]::Parse($ip)
+                    if($parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetworkV6){continue}
+                    if($parsed.Equals([Net.IPAddress]::IPv6Any) -or $parsed.Equals([Net.IPAddress]::IPv6Loopback) -or $parsed.IsIPv6Multicast){continue}
+                    $key=$parsed.ToString().ToLowerInvariant()
+                    $ipv6Map[$key]=[pscustomobject]@{
+                        IP=$parsed.ToString()
+                        MAC=$mac
+                        State=[string]$n.State
+                        Scope=$(if($parsed.IsIPv6LinkLocal){'LinkLocal'}else{'Unicast'})
+                        InterfaceIndex=$interfaceIndex
+                        Evidence='Windows IPv6 neighbor cache (passive NDP)'
+                    }
+                } catch {
+                    Write-WorkerLog -message ('Ignored invalid IPv6 neighbor entry: '+$ip)
+                }
+            }
+        } else {
+            $ipv6NeighborError='Get-NetNeighbor unavailable'
+            Write-WorkerLog -message $ipv6NeighborError
+        }
+        $ipv6Neighbors=@($ipv6Map.Values | Sort-Object -Property IP)
+        Write-WorkerLog -message "IPv6 NDP snapshot observed=$(@($ipv6Neighbors).Count) interface=$interfaceIndex"
+    } catch {
+        $ipv6Neighbors=@()
+        $ipv6NeighborError=$_.Exception.Message
+        Write-WorkerLog -message ('IPv6 NDP snapshot failed: '+$ipv6NeighborError)
+    }
+    $done=@($ipv6Neighbors).Count;Write-State -complete $false -cancelled $false -errorMessage ''
+
     $phase='done';$done=$total;Write-State $true $false ''
     $discoveredCount=@($results.Values | Where-Object {$_.Status -ne 'Unknown'}).Count
-    Write-WorkerLog "DONE Profile=$scanProfile Online=$online Seen=$seen TotalDiscovered=$discoveredCount ElapsedMs=$($workerSw.ElapsedMilliseconds)"
+    Write-WorkerLog "DONE Profile=$scanProfile Online=$online Seen=$seen IPv6Neighbors=$(@($ipv6Neighbors).Count) TotalDiscoveredIPv4=$discoveredCount ElapsedMs=$($workerSw.ElapsedMilliseconds)"
     exit 0
 } catch {
     $msg=$_.Exception.Message

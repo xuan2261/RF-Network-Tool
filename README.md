@@ -2,7 +2,7 @@
 
 Portable Windows RF & network diagnostics tool.
 
-Current development baseline: **v1.4.3 release-hardening candidate**.
+Current development baseline: **v1.5.0 IPv6/NDP foundation candidate**.
 
 The repository includes:
 - Windows PowerShell 5.1 / WinForms runtime
