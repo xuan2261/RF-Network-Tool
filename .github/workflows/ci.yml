@@ -61,6 +61,9 @@ jobs:
       - name: Evidence sanitizer IPv6 self-test
         shell: powershell
         run: .\RF-Network-Tool-RealMachineQualification.ps1 -SanitizerSelfTest -NoZip
+      - name: Route-aware scope planner policy
+        shell: powershell
+        run: .\tests\WINDOWS_ROUTE_SCOPE_TEST_v1_5_1.ps1
       - name: Install pinned PSScriptAnalyzer
         shell: powershell
         run: |
