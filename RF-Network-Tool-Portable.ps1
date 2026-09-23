@@ -3039,6 +3039,13 @@ $btnScan.Add_Click({
         if($chkRouteAware.Checked){
             $routePlan=New-RftRouteAwareScanPlan -PrimaryCidr $primaryCidr -InterfaceIndex ([int]$ai.InterfaceIndex) -MaxAutoSubnets 4 -MaxTotalHosts 1024 -MaxAutoHostsPerSubnet 254
             $targets=@($routePlan.Targets)
+            if([int]$routePlan.AutoScopeCount -gt 0){
+                $autoCidrs=@($routePlan.Scopes | Where-Object {[string]$_.Source -eq 'Route'} | ForEach-Object {[string]$_.Cidr})
+                $scopeText=[string]::Join([Environment]::NewLine,$autoCidrs)
+                $confirmText="Route-aware sẽ thêm $($routePlan.AutoScopeCount) private routed scope:`n$scopeText`n`nTổng unique targets: $($routePlan.TotalTargets) (giới hạn 1024).`nChỉ tiếp tục nếu bạn được phép kiểm tra các mạng này.`n`nTiếp tục scan?"
+                $choice=[System.Windows.Forms.MessageBox]::Show($confirmText,'Xác nhận Route-aware scan',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning)
+                if($choice -ne [System.Windows.Forms.DialogResult]::Yes){return}
+            }
         }else{
             $targets=@(Get-IPv4HostsFromCidr $primaryCidr 1024)
         }
