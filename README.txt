@@ -38,7 +38,7 @@ TAB NETWORK SCAN
 - DEEP: timeout/discovery dai hon cho mang embedded/RF/GPS/Jetson.
 - ICMP responder -> Online. Khong tra ICMP nhung tra ARP -> L2 Seen.
 - IPv6 NDP: chi doc neighbor cache tren dung interface; khong brute-force/khong sinh dai IPv6 va khong mutate neighbor table.
-- Route-aware: tuy chon (mac dinh OFF). Khi bat, primary CIDR van duoc giu; tool chi doc Get-NetRoute tren dung InterfaceIndex va tu dong them toi da 4 RFC1918 subnet /24..30, moi subnet <=254 host, tong unique target <=1024.
+- Route-aware: tuy chon (mac dinh OFF). Khi bat, primary CIDR van duoc giu; tool chi doc Get-NetRoute tren dung InterfaceIndex va tu dong them toi da 4 RFC1918 subnet /24..30, moi subnet <=254 host, tong unique target <=1024. Neu co subnet tu dong, GUI hien danh sach CIDR va hoi xac nhan truoc khi scan.
 - Route mac dinh/public/sai interface/qua rong/host-only/trung lap bi bo qua. Neu doc route table loi, scan fail-soft ve primary CIDR.
 - Worker scan nam ngoai UI process callback path; UI poll state theo runId/session de loai stale state.
 - Name discovery dung DNS/PTR, ping -a/NetBIOS (tuy profile), mDNS/DNS-SD, SSDP/UPnP va cache evidence.
