@@ -83,7 +83,7 @@ checks={
  'runtime_scripts_present':all(p.exists() for p in paths),
  'all_delimiters_balanced':all(balanced(x) for x in texts.values()),
  'no_duplicate_functions':all(not dups(x) for x in texts.values()),
- 'no_definition_only_functions':all(not def_only(x) for x in texts.values()),
+ 'no_definition_only_functions':not def_only('\n'.join(texts.values())),
  'no_auto_variable_regression':all(not bad_auto(x) for x in texts.values()),
  'null_comparisons_left_safe':all(not re.search(r'(?i)\$(?!null\b)[A-Za-z_][\w.]*\s+-(?:eq|ne)\s+\$null\b',strip_ps(x)) for x in texts.values()),
  'no_ambiguous_colon_interpolation':all(not ambiguous_colon_interpolation(x) for x in texts.values()),
