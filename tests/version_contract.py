@@ -13,7 +13,7 @@ build=(root/'release_tools/build_release.py').read_text(encoding='utf-8')
 ci=(root/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 checks={
  'version_semver':bool(re.fullmatch(r'\d+\.\d+\.\d+',version)),
- 'candidate_is_v150':version=='1.5.0',
+ 'candidate_is_v151':version=='1.5.1',
  'launcher_reads_version':all(x in launcher for x in ["Join-Path $BaseDir 'VERSION'",'$AppVersion','Launcher v$AppVersion']),
  'main_reads_version':all(x in main for x in ["Join-Path $BaseDir 'VERSION'",'$AppVersion','Portable v$AppVersion']),
  'workers_dynamic_useragent':all('$UserAgent' in x and 'RF-Network-Tool/1.4.2' not in x for x in [task,disc]),
