@@ -11,6 +11,7 @@ $WorkerScript = Join-Path $BaseDir 'RF-Network-Tool-DiscoveryWorker.ps1'
 $ScanWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-ScanWorker.ps1'
 $PingWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-PingWorker.ps1'
 $TaskWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-TaskWorker.ps1'
+$RoutePlannerScript = Join-Path $BaseDir 'RF-Network-Tool-RoutePlanner.ps1'
 $StartScript = Join-Path $BaseDir 'START-RF-NETWORK-TOOL.vbs'
 $SystemPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $DataDir = $BaseDir
@@ -103,13 +104,13 @@ try {
     if ($PSVersionTable.PSVersion -lt [version]'5.1') { throw "Cần Windows PowerShell 5.1 trở lên. Hiện tại: $($PSVersionTable.PSVersion)" }
     if ([Threading.Thread]::CurrentThread.ApartmentState -ne [Threading.ApartmentState]::STA) { throw 'PowerShell phải chạy ở STA. Hãy dùng START-RF-NETWORK-TOOL.vbs hoặc RUN-PORTABLE.cmd.' }
     if (-not (Test-Path -LiteralPath $SystemPowerShell)) { throw "Không tìm thấy Windows PowerShell hệ thống: $SystemPowerShell" }
-    foreach($required in @($MainScript,$WorkerScript,$ScanWorkerScript,$PingWorkerScript,$TaskWorkerScript,$StartScript,$VersionFile)) { if(-not (Test-Path -LiteralPath $required)){throw "Không tìm thấy file bắt buộc: $required"} }
+    foreach($required in @($MainScript,$WorkerScript,$ScanWorkerScript,$PingWorkerScript,$TaskWorkerScript,$RoutePlannerScript,$StartScript,$VersionFile)) { if(-not (Test-Path -LiteralPath $required)){throw "Không tìm thấy file bắt buộc: $required"} }
 
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
     Add-Type -AssemblyName System.Drawing -ErrorAction Stop
     Write-LaunchLog 'WinForms/System.Drawing load: PASS'
 
-    foreach($spec in @(@('Main',$MainScript),@('DiscoveryWorker',$WorkerScript),@('ScanWorker',$ScanWorkerScript),@('PingWorker',$PingWorkerScript),@('TaskWorker',$TaskWorkerScript))) {
+    foreach($spec in @(@('Main',$MainScript),@('DiscoveryWorker',$WorkerScript),@('ScanWorker',$ScanWorkerScript),@('PingWorker',$PingWorkerScript),@('TaskWorker',$TaskWorkerScript),@('RoutePlanner',$RoutePlannerScript))) {
         $tokens=$null;$parseErrors=$null
         [void][System.Management.Automation.Language.Parser]::ParseFile($spec[1],[ref]$tokens,[ref]$parseErrors)
         if($parseErrors -and $parseErrors.Count -gt 0){
@@ -132,7 +133,7 @@ try {
 
     if ($Diagnostic) {
         Write-LaunchLog 'Diagnostic-only mode: PASS'
-        Write-Host 'PASS: PowerShell/STA/WinForms/main+4 worker parsers/VBScript/data-dir checks completed.' -ForegroundColor Green
+        Write-Host 'PASS: PowerShell/STA/WinForms/main+workers+route-planner parsers/VBScript/data-dir checks completed.' -ForegroundColor Green
         Write-Host "BaseDir: $BaseDir"
         Write-Host "DataDir: $DataDir"
         Write-Host "Log: $LogFile"
