@@ -23,6 +23,7 @@ checks={
  'orchestrator_ipv6_sanitizer_function_complete':all(x in ps for x in ['[Net.IPAddress]::TryParse($parseCandidate,[ref]$parsed)',"return '<IPv6>'",'function Get-SourceRevisionEvidence']),
  'orchestrator_source_revision':all(x in ps for x in ['ExpectedSourceRevision','Get-SourceRevisionEvidence','root-folder-suffix','sourceRevision','source_revision']),
  'orchestrator_core_gates':all(x in ps for x in ['WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','WINDOWS_LINT_GATE_v1_4_2.ps1','WINDOWS_CHAOS_TEST_v1_4_2.ps1','WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','WINDOWS_LAUNCHER_E2E_v1_4_2.ps1']),
+ 'orchestrator_route_scope_gates':all(x in ps for x in ['WINDOWS_ROUTE_SCOPE_TEST_v1_5_1.ps1','route_scope_planner','WINDOWS_ROUTE_SCOPE_LIVE_TEST_v1_5_1.ps1','route_scope_live']),
  'orchestrator_cleanliness_gates':all(x in ps for x in ['WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1','machine_cleanliness_baseline','machine_cleanliness_post','RFT-cleanliness-']),
  'cleanliness_modes':all(x in clean for x in ["[ValidateSet('Snapshot','Assert')]",'processLeaks=0 tempArtifacts=0','FAIL machine cleanliness baseline','FAIL machine cleanliness post-run']),
  'cleanliness_runtime_tokens':all(x in clean for x in ['RF-Network-Tool-Launcher.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1']),
