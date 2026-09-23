@@ -35,6 +35,8 @@ checks={
         "$chkRouteAware.Text='Route-aware'" in main and '$chkRouteAware.Checked=$false' in main,
     'ui_route_aware_planner':
         'New-RftRouteAwareScanPlan' in main and '$routePlan.Targets' in main,
+    'ui_route_scope_confirmation':
+        all(x in main for x in ['Xác nhận Route-aware scan','MessageBoxButtons]::YesNo','DialogResult]::Yes','Chỉ tiếp tục nếu bạn được phép kiểm tra các mạng này.']),
     'ui_manual_cidr_preserved':
         'Get-IPv4HostsFromCidr $primaryCidr 1024' in main,
     'ui_route_scope_evidence':
