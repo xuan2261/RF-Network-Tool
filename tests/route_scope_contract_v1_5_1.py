@@ -6,6 +6,10 @@ root=Path(__file__).resolve().parents[1]
 planner_path=root/'RF-Network-Tool-RoutePlanner.ps1'
 planner=planner_path.read_text(encoding='utf-8-sig') if planner_path.is_file() else ''
 main=(root/'RF-Network-Tool-Portable.ps1').read_text(encoding='utf-8-sig')
+qualification=(root/'RF-Network-Tool-RealMachineQualification.ps1').read_text(encoding='utf-8-sig')
+physical=(root/'.github/workflows/ui-e2e-selfhosted.yml').read_text(encoding='utf-8')
+live_path=root/'tests/WINDOWS_ROUTE_SCOPE_LIVE_TEST_v1_5_1.ps1'
+live=live_path.read_text(encoding='utf-8-sig') if live_path.is_file() else ''
 
 checks={
     'route_planner_exists': planner_path.is_file(),
@@ -35,6 +39,12 @@ checks={
         'Get-IPv4HostsFromCidr $primaryCidr 1024' in main,
     'ui_route_scope_evidence':
         'RouteAware=' in main and 'Scopes=' in main and 'ScopeCount=' in main,
+    'live_probe_read_only':
+        all(x in live for x in ['Get-NetIPConfiguration','New-RftRouteAwareScanPlan','route-aware-live-summary.json'])
+        and all(x not in live for x in ['SendARP','PingSweep','New-NetRoute','Set-NetRoute','Remove-NetRoute']),
+    'physical_route_probe_wired':
+        all(x in qualification for x in ['route_scope_planner','route_scope_live','WINDOWS_ROUTE_SCOPE_LIVE_TEST_v1_5_1.ps1'])
+        and all(x in physical for x in ['route_scope_planner must PASS','route_scope_live must PASS','route-aware-live-summary.json']),
 }
 failed=[k for k,v in checks.items() if not v]
 for k,v in checks.items():
