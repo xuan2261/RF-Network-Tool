@@ -11,6 +11,7 @@ v1.5.1 builds on the physically qualified and merged v1.5.0 IPv6/NDP foundation 
 - Default/public/wrong-interface/host-only/invalid routes are rejected.
 - Automatic routes must be /24 through /30, so each added scope has at most 254 hosts.
 - At most 4 automatic scopes are accepted and total unique targets are capped at 1024.
+- If any automatic scope is found, the GUI shows the additional CIDRs and total target count and requires an explicit Yes/No confirmation before active scanning begins.
 - Overlapping targets are deduplicated before the existing ScanWorker receives them.
 - Route-table read failure is non-fatal: the scan falls back to the primary CIDR only.
 - No route or IP mutation cmdlets are used.
