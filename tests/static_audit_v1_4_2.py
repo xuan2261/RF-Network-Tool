@@ -2,7 +2,7 @@
 from pathlib import Path
 import re,json,sys
 root=Path(__file__).resolve().parents[1]
-names=['RF-Network-Tool-Portable.ps1','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1']
+names=['RF-Network-Tool-Portable.ps1','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','RF-Network-Tool-RoutePlanner.ps1']
 paths=[root/n for n in names];texts={p.name:p.read_text(encoding='utf-8-sig') for p in paths}
 mt=texts[names[0]];lt=texts[names[1]];dt=texts[names[2]];st=texts[names[3]];pt=texts[names[4]];tt=texts[names[5]];rtp=texts[names[6]]
 version=(root/'VERSION').read_text(encoding='ascii').strip()
