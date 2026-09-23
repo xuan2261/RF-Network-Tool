@@ -42,6 +42,7 @@ checks={
  'e2e_uia_title_normalization':all(x in e2e for x in ['Normalize-UiName',"-replace '&','' -replace '\\s+',' '",'$escapedVersion',"'VERSION'"]),
  'e2e_waits_for_tab_accessibility':all(x in e2e for x in ['$tabWait=[Diagnostics.Stopwatch]::StartNew()','$items.Count -ge 5','Start-Sleep -Milliseconds 200']),
  'e2e_msaa_tab_fallback':all(x in e2e for x in ['AccessibleObjectFromWindow','RftMsaaBridge','SysTabControl32','accDoDefaultAction','MSAA.SysTabControl32','Get-VisibleExpectedPaneNames']),
+ 'e2e_native_tab_selection_oracle':all(x in e2e for x in ['TCM_GETCURSEL','GetSelectedIndex','ui-tab-selection.txt','MSAA.SysTabControl32+TCM_GETCURSEL','Native TCM_GETCURSEL confirms selected tab']),
  'e2e_msaa_selftest':all(x in e2e for x in ['AccessibilitySelfTest','MSAA TAB ACCESSIBILITY SELF-TEST PASSED','MSAA accDoDefaultAction switches page tab']),
  'e2e_ctrl_tab_fallback':all(x in e2e for x in ['System.Windows.Forms.SendKeys','Microsoft.VisualBasic.Interaction]::AppActivate','ControlType]::Pane','Current.IsOffscreen','CtrlTab+UIAutomation.Pane fallback','ui-tab-provider.txt','$navigationExercised']),
  'e2e_requires_real_navigation':"Assert-True ($navigationExercised -and -not $p.HasExited) 'GUI survives tab navigation'" in e2e,
