@@ -65,6 +65,7 @@ checks={
  'ui_exact_head_guard':all(x in ui for x in ['expected_sha:','RFT_EXPECTED_SHA: ${{ inputs.expected_sha }}','git rev-parse HEAD',"^[0-9a-f]{40}$",'Revision mismatch']),
  'ui_full_physical_harness':all(x in ui for x in ['RF-Network-Tool-RealMachineQualification.ps1',"'-Mode','Full'",'real_lan_fast_balanced','ExpectedSourceRevision']),
  'ui_requires_physical_pass':all(x in ui for x in ["interactive_gui_e2e must PASS","real_lan_fast_balanced must PASS","SKIP is not release qualification"]),
+ 'ui_requires_route_scope':all(x in ui for x in ['route_scope_planner must PASS','route_scope_live must PASS','routeScopePlanner','routeScopeLive','route-aware-live-summary.json']),
  'ui_requires_machine_cleanliness':all(x in ui for x in ['machine_cleanliness_baseline must PASS','machine_cleanliness_post must PASS','machineCleanlinessBaseline','machineCleanlinessPost']),
  'ui_requires_harness_revision':all(x in ui for x in ['harnessSourceRevision','Harness source revision mismatch']),
  'ui_sanitized_evidence':all(x in ui for x in ['physical-safe','physical-qualification-summary.json','ui-tab-items.txt','Remove raw physical-network evidence','Remove-Item -LiteralPath .\\real-machine-results','Remove-Item -LiteralPath .\\ci-artifacts']),
