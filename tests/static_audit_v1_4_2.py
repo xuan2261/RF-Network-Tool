@@ -4,7 +4,7 @@ import re,json,sys
 root=Path(__file__).resolve().parents[1]
 names=['RF-Network-Tool-Portable.ps1','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1']
 paths=[root/n for n in names];texts={p.name:p.read_text(encoding='utf-8-sig') for p in paths}
-mt=texts[names[0]];lt=texts[names[1]];dt=texts[names[2]];st=texts[names[3]];pt=texts[names[4]];tt=texts[names[5]]
+mt=texts[names[0]];lt=texts[names[1]];dt=texts[names[2]];st=texts[names[3]];pt=texts[names[4]];tt=texts[names[5]];rtp=texts[names[6]]
 version=(root/'VERSION').read_text(encoding='ascii').strip()
 
 def strip_ps(s):
@@ -80,7 +80,7 @@ checks={
  'version_launcher_dynamic':'$AppVersion' in lt and 'VERSION' in lt and 'v1.4.2 Full QA / CI-E2E' not in lt,
  'task_useragents_dynamic':tt.count('$UserAgent')>=3 and 'RF-Network-Tool/1.4.2' not in tt,
  'discovery_useragent_dynamic':'$UserAgent' in dt and 'RF-Network-Tool/1.4.2' not in dt,
- 'six_runtime_scripts':all(p.exists() for p in paths),
+ 'runtime_scripts_present':all(p.exists() for p in paths),
  'all_delimiters_balanced':all(balanced(x) for x in texts.values()),
  'no_duplicate_functions':all(not dups(x) for x in texts.values()),
  'no_definition_only_functions':all(not def_only(x) for x in texts.values()),
@@ -120,6 +120,9 @@ checks={
  'scan_active_arp':'SendARP' in st and 'Get-NetNeighbor' in st,
  'scan_passive_ipv6_ndp':all(x in st for x in ['Get-NetNeighbor -AddressFamily IPv6 -InterfaceIndex $interfaceIndex','ipv6Neighbors=@($ipv6Neighbors)','IPv6NeighborCount=@($ipv6Neighbors).Count','ipv6-neighbor-snapshot']),
  'scan_ipv6_no_mutation':all(x not in st for x in ['New-NetNeighbor','Set-NetNeighbor','Remove-NetNeighbor','New-NetIPAddress','Set-NetIPAddress']),
+ 'route_planner_private_bounded':all(x in rtp for x in ['Get-NetRoute -AddressFamily IPv4 -InterfaceIndex $InterfaceIndex','MaxAutoSubnets=4','MaxTotalHosts=1024','MaxAutoHostsPerSubnet=254','Test-RftPrivateIPv4Range']),
+ 'route_planner_no_mutation':all(x not in rtp for x in ['New-NetRoute','Set-NetRoute','Remove-NetRoute','New-NetIPAddress','Set-NetIPAddress']),
+ 'route_planner_opt_in_ui':all(x in mt for x in ["$chkRouteAware.Text='Route-aware'","$chkRouteAware.Checked=$false",'New-RftRouteAwareScanPlan']),
  'scan_ipv6_ui_surface':'NDP6 $ipv6Count' in mt and 'IPv6Neighbors=$(if($state.PSObject.Properties' in mt,
  'scan_profiles':all(x in mt for x in ["@('FAST','BALANCED','DEEP')","SelectedItem='BALANCED'"]),
  'evidence_retained':"'DISCOVERY EVIDENCE'" in mt and 'Get-ScanEvidenceRecords' in mt,
