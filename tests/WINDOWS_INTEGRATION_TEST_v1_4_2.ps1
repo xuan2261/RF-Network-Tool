@@ -44,6 +44,8 @@ Assert-True ($mainText.Contains("'PENDING'") -and $mainText.Contains("'WAITING'"
 Assert-True ($mainText.Contains("History (MAC match)") -and $mainText.Contains('LastNameSource') -and -not $mainText.Contains("if($h.LastIP -eq $ip -and $h.LastName)")) 'History naming is MAC-bound and provenance-gated'
 Assert-True ($mainText.Contains('$deepState=[pscustomobject]@') -and $mainText.Contains('StartupTimeoutSec=12') -and $mainText.Contains('Deep worker không phát heartbeat')) 'Deep UI worker uses shared state and startup watchdog'
 Assert-True ($mainText.Contains('RFT_DEEP_UI_E2E') -and $mainText.Contains("Write-DeepUiE2eResult -status 'PASS' -stage 'completed'") -and (Test-Path -LiteralPath $deepUiE2e)) 'Deep UI regression hook and bounded E2E harness present'
+$deepFailRc=Invoke-BoundedPs $deepUiE2e @('-FailureExitSelfTest') 10000 'Deep UI failure-exit self-test'
+Assert-True ($deepFailRc -eq 23) 'Deep UI E2E failure path propagates a non-zero exit code'
 Assert-True ($mainText.Contains("@('MonSamples','OK/TOTAL',8)") -and $mainText.Contains("@('MonLastSample','LAST SAMPLE',10)") -and $mainText.Contains('MonitoringSessionStartedAt')) 'Monitoring exposes sample auditability and session horizon'
 Assert-True ($mainText.Contains('$script:MonitoringEvents|Sort-Object At -Descending') -and -not $mainText.Contains('$script:MonitoringEvents|Select-Object -Last 200')) 'Monitoring grid renders the full retained timeline'
 
