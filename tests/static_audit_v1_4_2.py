@@ -106,7 +106,7 @@ checks={
  'monitor_metrics':all(x in mt for x in ['MonCurrent','MonMin','MonAvg','MonMax','MonLoss','MonUptime','MonDowntime','MonOutages']),
  'monitor_nonmodal_alert':'$monitorAlertTip.Show(' in mt and 'NotifyIcon' not in mt,
  'monitor_timer_cleanup':'$monitorTimer' in mt and '@($udpTimer,$timer,$discoveryTimer,$scanWorkerTimer,$pingWorkerTimer,$monitorTimer' in mt,
- 'monitor_worker_failure_freezes_clock':'A worker failure is not a network outage' in mt and 'Worker error: $message' in mt,
+ 'monitor_worker_failure_freezes_clock':'A worker failure is not a network outage' in mt and 'Set-MonitorMeasurementError' in mt,
  'scan_runtime_integrity':all(x in mt for x in ['function Get-ScanIpKey','function Find-ScanGridRowByIp','function Repair-ScanGridIndex','$script:ScanRecordByIp = @{}','SCAN-INTEGRITY']),
  'ping_request_finalization':all(x in mt for x in ['function Set-PingTargetEngineError','function Finalize-PingRequest','$completedTargets=@{}','PING-RESULT-INCOMPLETE','PingLatestRequest.Remove($target)']),
  'monitor_engine_state_ui':all(x in mt for x in ["'PENDING'","'WAITING'","'ENGINE ERROR'",'Engine error:']),

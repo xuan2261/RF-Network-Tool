@@ -58,6 +58,9 @@ jobs:
       - name: Runtime integration on Windows PowerShell 5.1
         shell: powershell
         run: .\tests\WINDOWS_INTEGRATION_TEST_v1_4_2.ps1
+      - name: Native measurement correctness and header layout
+        shell: powershell
+        run: .\tests\WINDOWS_MEASUREMENT_TEST_v1_5_3.ps1
       - name: Evidence sanitizer IPv6 self-test
         shell: powershell
         run: .\RF-Network-Tool-RealMachineQualification.ps1 -SanitizerSelfTest -NoZip

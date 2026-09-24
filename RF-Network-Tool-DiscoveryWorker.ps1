@@ -2,6 +2,9 @@
     [Parameter(Mandatory=$true)][string]$TargetsFile,
     [Parameter(Mandatory=$true)][string]$CacheFile,
     [string]$RunId = '',
+    [string]$SessionId = '',
+    [string]$ResultFile = '',
+    [string]$CancelFile = '',
     [int]$DurationSec = 45,
     [Alias('Profile')][string]$DiscoveryProfile = 'BALANCED',
     [string]$Gateway = '',
@@ -11,7 +14,7 @@
     [long]$ParentStartTicks = 0
 )
 
-$ErrorActionPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $VersionFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'VERSION'
 if (-not (Test-Path -LiteralPath $VersionFile)) { throw "Missing VERSION: $VersionFile" }
@@ -25,6 +28,27 @@ if([string]::IsNullOrWhiteSpace($RunId)){$RunId=[guid]::NewGuid().ToString('N')}
 $map = @{}
 $evidenceMap = @{}
 $targetMeta=@{}
+if(-not $ResultFile){$ResultFile=$CacheFile+'.result.json'}
+$script:CacheWriteFailed=$false
+
+function Assert-DiscoveryActive {
+    if(-not (Test-ParentAlive) -or ($CancelFile -and (Test-Path -LiteralPath $CancelFile))){
+        throw [OperationCanceledException]::new('Discovery cancelled or parent ended')
+    }
+}
+
+function Write-DiscoveryTerminal($value) {
+    $tmp=$ResultFile+'.'+[guid]::NewGuid().ToString('N')+'.tmp'
+    $backup=$tmp+'.previous'
+    try {
+        [IO.File]::WriteAllText($tmp,(ConvertTo-Json -InputObject $value -Depth 5),(New-Object Text.UTF8Encoding($true)))
+        # Use an explicit unique backup path: Windows PowerShell may bind $null as an empty string.
+        if(Test-Path -LiteralPath $ResultFile){[IO.File]::Replace($tmp,$ResultFile,$backup)}
+        else{[IO.File]::Move($tmp,$ResultFile)}
+    } finally {
+        foreach($path in @($tmp,$backup)){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force}}
+    }
+}
 
 function Write-WorkerLog([string]$message) {
     if([string]::IsNullOrWhiteSpace($LogFile)){return}
@@ -105,7 +129,7 @@ function Write-Cache {
                 Score=$(if($best){[int]$best.Score}else{0});UpdatedAt=$(if($best){[string]$best.UpdatedAt}else{(Get-Date).ToString('s')});Evidence=$ev
             }
         }
-        $payload=[ordered]@{schemaVersion=4;runId=$RunId;profile=$DiscoveryProfile;updatedAt=(Get-Date).ToString('o');records=$items}
+        $payload=[ordered]@{schemaVersion=4;runId=$RunId;sessionId=$SessionId;profile=$DiscoveryProfile;updatedAt=(Get-Date).ToString('o');records=$items}
         $json = $payload | ConvertTo-Json -Depth 7
         $tmp = "$CacheFile.$PID.$([guid]::NewGuid().ToString('N')).tmp"
         $enc=New-Object System.Text.UTF8Encoding -ArgumentList $true
@@ -114,7 +138,7 @@ function Write-Cache {
             if(Test-Path -LiteralPath $CacheFile){try{[IO.File]::Replace($tmp,$CacheFile,$null);return}catch{}}
             Move-Item -LiteralPath $tmp -Destination $CacheFile -Force -ErrorAction Stop
         } finally {if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue}}
-    } catch { Write-WorkerLog ('Cache write failed: '+$_.Exception.Message) }
+    } catch { $script:CacheWriteFailed=$true;Write-WorkerLog ('Cache write failed: '+$_.Exception.Message) }
 }
 
 function Invoke-ProcessText([string]$file,[string]$argumentLine,[int]$timeoutMs=800) {
@@ -306,8 +330,12 @@ function Get-UpnpFriendlyName([string]$location,[string]$expectedIp) {
     return ''
 }
 
+$runClock=[Diagnostics.Stopwatch]::StartNew();$sw=$null
+$terminalStatus='ERROR';$terminalError='';$exitCode=1;$ips=@()
+try {
+    Assert-DiscoveryActive
 $targets=@()
-try { $targets=@(Get-Content -LiteralPath $TargetsFile -Raw | ConvertFrom-Json) } catch { Write-WorkerLog ('Targets JSON parse failed: '+$_.Exception.Message); exit 2 }
+$targets=@(Get-Content -LiteralPath $TargetsFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
 $ips=@()
 foreach($t in $targets){
     $ip=if($t.IP){[string]$t.IP}else{[string]$t};$addr=$null
@@ -317,12 +345,12 @@ foreach($t in $targets){
     }
 }
 $ips=@($ips | Select-Object -Unique)
-if($ips.Count -eq 0){Write-WorkerLog 'No valid IPv4 targets.';Write-Cache;exit 0}
+if($ips.Count -eq 0){throw 'No valid IPv4 targets'}
 Write-WorkerLog "Targets=$($ips.Count) Profile=$DiscoveryProfile"
 
 # Quick per-target probes run in this helper process, never on the WinForms UI thread.
 foreach($ip in $ips){
-        if(-not(Test-ParentAlive)){Write-WorkerLog 'Parent process ended; stopping discovery.';break}
+        Assert-DiscoveryActive
     Add-Evidence $ip 'Discovery profile' 'INFO' $DiscoveryProfile "Profile=$DiscoveryProfile; observation window=${DurationSec}s"
     if($targetMeta.ContainsKey($ip)){
         $meta=$targetMeta[$ip];$existing=Normalize-Name ([string]$meta.CurrentName);$src=[string]$meta.CurrentSource
@@ -382,11 +410,11 @@ try {
         @('_services._dns-sd._udp.local','_workstation._tcp.local','_device-info._tcp.local','_googlecast._tcp.local','_airplay._tcp.local','_companion-link._tcp.local','_ipp._tcp.local','_printer._tcp.local','_http._tcp.local','_https._tcp.local')
     }
     while($sw.Elapsed.TotalSeconds -lt $DurationSec){
-        if(-not(Test-ParentAlive)){Write-WorkerLog 'Parent process ended; stopping discovery.';break}
+        Assert-DiscoveryActive
         if($sw.Elapsed.TotalSeconds -ge $nextQuery){
             foreach($qn in $serviceNames){$q=New-DnsQuery $qn 12;if($q){try{[void]$mdns.Send($q,$q.Length,'224.0.0.251',5353)}catch{}}}
             foreach($ip in $ips){
-        if(-not(Test-ParentAlive)){Write-WorkerLog 'Parent process ended; stopping discovery.';break}
+        Assert-DiscoveryActive
                 try{$a=[Net.IPAddress]::Parse($ip);$b=$a.GetAddressBytes();$rev="$($b[3]).$($b[2]).$($b[1]).$($b[0]).in-addr.arpa";$q=New-DnsQuery $rev 12;if($q){[void]$mdns.Send($q,$q.Length,'224.0.0.251',5353)}}catch{}
             }
             $msg="M-SEARCH * HTTP/1.1`r`nHOST: 239.255.255.250:1900`r`nMAN: `"ssdp:discover`"`r`nMX: 1`r`nST: ssdp:all`r`n`r`n"
@@ -440,3 +468,21 @@ try {
     }
     if($mdns){try{$mdns.Close()}catch{}};if($ssdp){try{$ssdp.Close()}catch{}};if($mdnsPassive){try{$mdnsPassive.Close()}catch{}};if($ssdpPassive){try{$ssdpPassive.Close()}catch{}};if($llmnrPassive){try{$llmnrPassive.Close()}catch{}};Write-Cache;Write-WorkerLog "END RunId=$RunId Profile=$DiscoveryProfile Names=$($map.Count)"
 }
+    Assert-DiscoveryActive
+    if($script:CacheWriteFailed){throw 'One or more discovery cache writes failed'}
+    if(-not $sw -or $sw.Elapsed.TotalSeconds -lt $DurationSec){throw 'Observation window did not complete'}
+    $terminalStatus='SUCCESS';$exitCode=0
+} catch [OperationCanceledException] {
+    $terminalStatus='CANCELLED';$terminalError=$_.Exception.Message;$exitCode=3
+} catch {
+    $terminalStatus='ERROR';$terminalError=$_.Exception.Message;$exitCode=1
+    Write-WorkerLog ('ERROR: '+$terminalError)
+} finally {
+    $windowMs=if($sw){$sw.ElapsedMilliseconds}else{0}
+    $terminal=[ordered]@{schemaVersion=1;sessionId=$SessionId;runId=$RunId;status=$terminalStatus;
+        completedWindow=($terminalStatus -eq 'SUCCESS');durationSec=$DurationSec;windowElapsedMs=$windowMs;
+        totalElapsedMs=$runClock.ElapsedMilliseconds;names=$map.Count;error=$terminalError}
+    try {Write-DiscoveryTerminal $terminal}
+    catch {$exitCode=1;Write-WorkerLog ('Terminal write failed: '+$_.Exception.Message)}
+}
+exit $exitCode
