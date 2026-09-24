@@ -46,6 +46,8 @@ $PingHeartbeatFile = Join-Path $PingIpcDir 'worker-state.json'
 $RuntimeLogDir = Join-Path $DataDir 'logs'
 try { if (-not (Test-Path -LiteralPath $RuntimeLogDir)) { [void](New-Item -ItemType Directory -Path $RuntimeLogDir -Force) } } catch { }
 $RuntimeLogFile = Join-Path $RuntimeLogDir ("runtime-{0}.log" -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+$script:DeepUiE2eMode = ([string]$env:RFT_DEEP_UI_E2E -eq '1')
+$script:DeepUiE2eResultFile = ([string]$env:RFT_DEEP_UI_E2E_RESULT).Trim()
 
 $script:TargetRows = @{}
 $script:TargetSchemaVersion = 2
@@ -132,6 +134,24 @@ function Write-TextAtomic([string]$path, [string]$text, [System.Text.Encoding]$e
     } finally {
         if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
+}
+
+function Write-DeepUiE2eResult([string]$status,[string]$stage,[string]$detail,[object]$deepState=$null) {
+    if(-not $script:DeepUiE2eMode -or [string]::IsNullOrWhiteSpace($script:DeepUiE2eResultFile)){return}
+    try {
+        $payload=[ordered]@{
+            schemaVersion=1
+            status=$status
+            stage=$stage
+            detail=$detail
+            recordedAt=(Get-Date).ToString('o')
+            workerCompleted=if($deepState){[bool]$deepState.Completed}else{$false}
+            workerSucceeded=if($deepState){[bool]$deepState.Succeeded}else{$false}
+            lastPhase=if($deepState){[string]$deepState.LastPhase}else{''}
+            lastError=if($deepState){[string]$deepState.LastError}else{''}
+        }
+        Write-TextAtomic $script:DeepUiE2eResultFile (ConvertTo-Json -InputObject $payload -Depth 4)
+    } catch { Write-RuntimeLog 'DEEP-UI-E2E' ($_ | Out-String) }
 }
 
 function Remove-TransientRuntimeFiles {
@@ -1237,7 +1257,7 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
 
     $lastDeep=$null
     # Mutable state object is shared by all WinForms event scriptblocks; bare local assignments are child-scoped in PowerShell.
-    $deepState=[pscustomobject]@{Busy=$false;Process=$null;RunId='';ResultFile='';HeartbeatFile='';ConfigFile='';StartedAt=$null;SeenHeartbeat=$false;StartupTimeoutSec=12}
+    $deepState=[pscustomobject]@{Busy=$false;Process=$null;RunId='';ResultFile='';HeartbeatFile='';ConfigFile='';StartedAt=$null;SeenHeartbeat=$false;StartupTimeoutSec=12;Completed=$false;Succeeded=$false;LastPhase='';LastError=''}
     $deepTimer=New-Object System.Windows.Forms.Timer;$deepTimer.Interval=250
 
     $cleanupDeep={
@@ -1279,6 +1299,7 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
         param([string]$message)
         $err=(New-EvidenceRecord 'Deep analysis' 'ERROR' '' $message (Get-Date).ToString('s'))
         $records=@(Get-DeviceEvidenceRecords $d $lastDeep);$records=@(Merge-EvidenceRecords @($records,@($err)));Set-EvidenceGrid $gridEvidence $records;$lblEvidenceSummary.Text=Get-EvidenceSummaryText $d $records
+        $deepState.Completed=$true;$deepState.Succeeded=$false;$deepState.LastError=$message
         Write-RuntimeLog 'DEVICE-DETAILS-DEEP' $message
     }
 
@@ -1287,14 +1308,14 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
             if($deepState.ResultFile -and (Test-Path -LiteralPath $deepState.ResultFile)){
                 $res=[IO.File]::ReadAllText($deepState.ResultFile)|ConvertFrom-Json -ErrorAction Stop
                 if([string]$res.sessionId -ne $RuntimeSessionId -or [string]$res.runId -ne $deepState.RunId){return}
-                if([bool]$res.success){& $applyDeep $res.deep}else{& $showDeepError $(if($res.PSObject.Properties['error']){[string]$res.error}else{'Deep analysis worker failed.'})}
+                if([bool]$res.success){$deepState.Completed=$true;$deepState.Succeeded=$true;$deepState.LastPhase='Completed';& $applyDeep $res.deep}else{& $showDeepError $(if($res.PSObject.Properties['error']){[string]$res.error}else{'Deep analysis worker failed.'})}
                 & $cleanupDeep
                 return
             }
             if($deepState.HeartbeatFile -and (Test-Path -LiteralPath $deepState.HeartbeatFile)){
                 $hb=[IO.File]::ReadAllText($deepState.HeartbeatFile)|ConvertFrom-Json -ErrorAction Stop
                 if([string]$hb.runId -eq $deepState.RunId){
-                    $deepState.SeenHeartbeat=$true
+                    $deepState.SeenHeartbeat=$true;$deepState.LastPhase=[string]$hb.phase
                     $age=((Get-Date)-([datetime]$hb.heartbeatAt)).TotalSeconds
                     if($age -gt 35){& $showDeepError "Deep worker heartbeat stale $([int]$age)s";& $cleanupDeep;return}
                     $btnDeep.Text="Đang phân tích: $([string]$hb.phase)"
@@ -1312,7 +1333,7 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
     $f.Add_FormClosing({param($source,$evt);if($deepState.Busy){& $cleanupDeep}})
     $btnDeep.Add_Click({
         if($deepState.Busy){return}
-        $deepState.Busy=$true;$btnDeep.Enabled=$false;$btnClose.Enabled=$false;$btnDeep.Text='Đang khởi động worker...'
+        $deepState.Busy=$true;$deepState.Completed=$false;$deepState.Succeeded=$false;$deepState.LastPhase='Starting';$deepState.LastError='';$btnDeep.Enabled=$false;$btnClose.Enabled=$false;$btnDeep.Text='Đang khởi động worker...'
         try {
             if(-not(Test-Path -LiteralPath $TaskWorkerScript)){throw "Không tìm thấy Task Worker: $TaskWorkerScript"}
             $deepState.RunId=[guid]::NewGuid().ToString('N')
@@ -1329,6 +1350,38 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
             $deepState.StartedAt=Get-Date;$deepState.SeenHeartbeat=$false;$deepTimer.Start()
         } catch {& $showDeepError $_.Exception.Message;& $cleanupDeep}
     })
+    $deepE2eTimer=$null
+    $deepE2eState=[pscustomobject]@{Clicked=$false;StartedAt=$null;ObservedProgress=$false;Done=$false}
+    if($script:DeepUiE2eMode){
+        $deepE2eTimer=New-Object System.Windows.Forms.Timer;$deepE2eTimer.Interval=200
+        $deepE2eTimer.Add_Tick({
+            try {
+                if(-not $deepE2eState.Clicked){
+                    $deepE2eState.Clicked=$true;$deepE2eState.StartedAt=Get-Date
+                    Write-DeepUiE2eResult 'RUNNING' 'button-click' 'Invoking the real Phân tích sâu / Refresh button callback.' $deepState
+                    $btnDeep.PerformClick();return
+                }
+                if($deepState.LastPhase -and $deepState.LastPhase -notin @('Starting','')){$deepE2eState.ObservedProgress=$true}
+                if($deepState.Completed -and -not $deepState.Busy){
+                    $restored=($btnDeep.Enabled -and $btnDeep.Text -eq 'Phân tích sâu / Refresh')
+                    $passed=($deepState.Succeeded -and $deepE2eState.ObservedProgress -and $restored)
+                    if($passed){Write-DeepUiE2eResult 'PASS' 'completed' 'Deep UI callback observed worker progress, successful result, and restored controls.' $deepState}
+                    else{Write-DeepUiE2eResult 'FAIL' 'completed' ("Succeeded={0}; ObservedProgress={1}; Restored={2}" -f $deepState.Succeeded,$deepE2eState.ObservedProgress,$restored) $deepState}
+                    $deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close();return
+                }
+                if($deepE2eState.StartedAt -and (((Get-Date)-[datetime]$deepE2eState.StartedAt).TotalSeconds -gt 45)){
+                    Write-DeepUiE2eResult 'FAIL' 'timeout' ("Deep UI did not complete within 45s; button='{0}' busy={1}" -f $btnDeep.Text,$deepState.Busy) $deepState
+                    if($deepState.Busy){& $cleanupDeep};$deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close()
+                }
+            } catch {
+                Write-DeepUiE2eResult 'FAIL' 'exception' $_.Exception.Message $deepState
+                if($deepState.Busy){& $cleanupDeep};$deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close()
+            }
+        })
+        $f.Add_Shown({$deepE2eTimer.Start()})
+        $f.Add_FormClosed({if($deepE2eTimer){try{$deepE2eTimer.Stop();$deepE2eTimer.Dispose()}catch{Write-RuntimeLog 'DEEP-UI-E2E-CLEANUP' $_.Exception.Message}}})
+    }
+
     $btnCopy.Add_Click({
         $all="DEVICE DETAILS`r`n";foreach($r in $gOverview.Rows){if(-not $r.IsNewRow){$all+="$($r.Cells[0].Value): $($r.Cells[1].Value)`r`n"}};$all+="`r`nNETWORK`r`n";foreach($r in $gNetwork.Rows){if(-not $r.IsNewRow){$all+="$($r.Cells[0].Value): $($r.Cells[1].Value)`r`n"}};$all+="`r`nPROTOCOLS`r`n$($txtProto.Text)`r`n`r`nDISCOVERY EVIDENCE`r`n"
         foreach($er in $gridEvidence.Rows){if(-not $er.IsNewRow){$all+="$($er.Cells['Source'].Value) | $($er.Cells['State'].Value) | $($er.Cells['Value'].Value) | $($er.Cells['Detail'].Value) | $($er.Cells['ObservedAt'].Value)`r`n"}}
@@ -3688,6 +3741,24 @@ $form.Add_Shown({
     if($loadedCount -gt 0){Save-Targets}
     Sync-MonitoringWithTargets -Save
     Refresh-MonitorTimelineGrid
+    if($script:DeepUiE2eMode){
+        try {
+            $testDevice=[pscustomobject]@{Status='Online';Type='This PC';Brand='';Model='';Name='Loopback';IP='127.0.0.1';MAC='';Latency='0 ms';OS='Windows';Confidence='High';NameSource='System DNS';ScanEvidence=@();DiscoveryEvidence=@()}
+            $ri=$gridScan.Rows.Add('Online','This PC','','','Loopback','System DNS','127.0.0.1','','0 ms',(Get-Date).ToString('HH:mm:ss'))
+            $testRow=$gridScan.Rows[$ri];$testRow.Tag=$testDevice;$gridScan.CurrentCell=$testRow.Cells['IP'];$tabs.SelectedTab=$tabScan
+            $launchDeepE2eTimer=New-Object System.Windows.Forms.Timer;$launchDeepE2eTimer.Interval=250
+            $launchDeepE2eTimer.Add_Tick({
+                $launchDeepE2eTimer.Stop()
+                try {Show-DeviceDetails $testRow $null}
+                catch {Write-DeepUiE2eResult 'FAIL' 'open-details' $_.Exception.Message $null}
+                finally {try{$launchDeepE2eTimer.Dispose()}catch{Write-RuntimeLog 'DEEP-UI-E2E-LAUNCH-CLEANUP' $_.Exception.Message};if(-not $form.IsDisposed){$form.Close()}}
+            })
+            $launchDeepE2eTimer.Start()
+        } catch {
+            Write-DeepUiE2eResult 'FAIL' 'seed-device' $_.Exception.Message $null
+            $form.Close()
+        }
+    }
     Add-Log $pingLog "RF & Network Diagnostic Tool v$AppVersion Full QA / CI-E2E đã sẵn sàng. Tên gợi nhớ sửa trực tiếp trong bảng PING (double-click/F2)."
     Add-Log $rfLog 'Tab RF UDP: nhập local port -> Start UDP. Packet nhận được sẽ hiện TEXT/HEX và tự dò RSSI/SNR.'
 })
