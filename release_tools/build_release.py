@@ -13,7 +13,7 @@ portable_zip=outroot/f'{prefix}-PORTABLE.zip'
 manifest_name=f'RELEASE_MANIFEST_{tag}.json'
 required=[
  'START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd',
- 'RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1',
+ 'RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-RoutePlanner.ps1',
  'RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1',
  'README.txt','VERSION'
 ]

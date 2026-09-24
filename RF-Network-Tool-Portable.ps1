@@ -28,6 +28,9 @@ $DiscoveryWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-DiscoveryWorker.ps1
 $ScanWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-ScanWorker.ps1'
 $PingWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-PingWorker.ps1'
 $TaskWorkerScript = Join-Path $BaseDir 'RF-Network-Tool-TaskWorker.ps1'
+$RoutePlannerScript = Join-Path $BaseDir 'RF-Network-Tool-RoutePlanner.ps1'
+if(-not (Test-Path -LiteralPath $RoutePlannerScript)){throw "Không tìm thấy Route Planner: $RoutePlannerScript"}
+. $RoutePlannerScript
 $OuiCacheFile = Join-Path $DataDir 'RF-Network-Tool.oui-prefix-cache.v1.tsv'
 # Transient worker IPC files are session-scoped so an orphan worker from a crashed
 # previous GUI cannot overwrite the current scan/name-discovery state.
@@ -2446,6 +2449,13 @@ $btnUpdateOui.Location = New-Object System.Drawing.Point(853, 4)
 $btnUpdateOui.Size = New-Object System.Drawing.Size(105, 31)
 $scanTop.Controls.Add($btnUpdateOui)
 
+$chkRouteAware = New-Object System.Windows.Forms.CheckBox
+$chkRouteAware.Text='Route-aware'
+$chkRouteAware.Location=New-Object System.Drawing.Point(965,8)
+$chkRouteAware.Size=New-Object System.Drawing.Size(100,24)
+$chkRouteAware.Checked=$false
+$scanTop.Controls.Add($chkRouteAware)
+
 $txtScanSearch = New-Object System.Windows.Forms.TextBox
 $txtScanSearch.Location = New-Object System.Drawing.Point(76, 48)
 $txtScanSearch.Size = New-Object System.Drawing.Size(270, 27)
@@ -2720,7 +2730,9 @@ function Start-ScanWorker([array]$targets,$ai,$adapter,$settings) {
     }
     Write-TextAtomic $ScanConfigFile (ConvertTo-Json -InputObject $cfg -Depth 5)
     $script:ScanLogFile=Join-Path $RuntimeLogDir ("scan-$((Get-Date).ToString('yyyyMMdd-HHmmss')).log")
-    Write-ScanLog $script:ScanLogFile "START ENGINE=v$AppVersion Profile=$($settings.Profile) CIDR=$($txtCidr.Text.Trim()) Adapter=$($adapter.Name) Local=$($ai.IP)/$($ai.Prefix) Gateway=$($ai.Gateway) FastPing=$($settings.FastPingTimeoutMs)ms Retry=$($settings.RetryEnabled)/$($settings.RetryPingTimeoutMs)ms PingConcurrency=$($settings.PingConcurrency) ArpConcurrency=$($settings.ArpConcurrency)"
+    $scopeLog=if($script:ScanContext -and $script:ScanContext.PSObject.Properties['Scopes']){[string]::Join(',',@($script:ScanContext.Scopes))}else{$txtCidr.Text.Trim()}
+    $routeAwareLog=if($script:ScanContext -and $script:ScanContext.PSObject.Properties['RouteAware']){[bool]$script:ScanContext.RouteAware}else{$false}
+    Write-ScanLog $script:ScanLogFile "START ENGINE=v$AppVersion Profile=$($settings.Profile) CIDR=$($txtCidr.Text.Trim()) RouteAware=$routeAwareLog Scopes=$scopeLog Adapter=$($adapter.Name) Local=$($ai.IP)/$($ai.Prefix) Gateway=$($ai.Gateway) FastPing=$($settings.FastPingTimeoutMs)ms Retry=$($settings.RetryEnabled)/$($settings.RetryPingTimeoutMs)ms PingConcurrency=$($settings.PingConcurrency) ArpConcurrency=$($settings.ArpConcurrency)"
 
     $psExe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $psi=New-Object Diagnostics.ProcessStartInfo
@@ -2968,7 +2980,7 @@ $scanWorkerTimer.Add_Tick({
                 if($script:ScanProcess){try{$script:ScanProcess.WaitForExit(300)}catch{};try{$script:ScanProcess.Dispose()}catch{};$script:ScanProcess=$null}
                 Remove-Item -LiteralPath $ScanCancelFile -Force -ErrorAction SilentlyContinue
 
-                $btnScan.Enabled=$true;$cmbScanAdapter.Enabled=$true;$txtCidr.Enabled=$true;$cmbScanProfile.Enabled=$true
+                $btnScan.Enabled=$true;$cmbScanAdapter.Enabled=$true;$txtCidr.Enabled=$true;$cmbScanProfile.Enabled=$true;$chkRouteAware.Enabled=$true
                 if([string]$state.error){
                     $lblScanStatus.Text="Network Scan lỗi: $($state.error)"
                     $lblScanStatus.ForeColor=[Drawing.Color]::Firebrick
@@ -3005,7 +3017,7 @@ $scanWorkerTimer.Add_Tick({
         } elseif($script:ScanProcess -and $script:ScanProcess.HasExited -and $script:ScanActive){
             $scanWorkerTimer.Stop()
             $script:ScanActive=$false
-            $btnScan.Enabled=$true;$btnStopScan.Enabled=$false;$cmbScanAdapter.Enabled=$true;$txtCidr.Enabled=$true;$cmbScanProfile.Enabled=$true
+            $btnScan.Enabled=$true;$btnStopScan.Enabled=$false;$cmbScanAdapter.Enabled=$true;$txtCidr.Enabled=$true;$cmbScanProfile.Enabled=$true;$chkRouteAware.Enabled=$true
             $lblScanStatus.Text='Scan worker đã thoát nhưng không tạo được state hợp lệ. Xem logs.'
             $lblScanStatus.ForeColor=[Drawing.Color]::Firebrick
             Write-RuntimeLog 'SCAN-WORKER' 'Process exited without a complete state file.'
@@ -3019,9 +3031,28 @@ $btnScan.Add_Click({
     if($script:ScanActive){return}
     if($cmbScanAdapter.SelectedIndex -lt 0){ [System.Windows.Forms.MessageBox]::Show('Không có card mạng IPv4 đang hoạt động.','Network Scan','OK','Information')|Out-Null; return }
     if([string]::IsNullOrWhiteSpace($txtCidr.Text)){[void](Update-ScanAdapterDefaults)}
-    try { $targets = @(Get-IPv4HostsFromCidr $txtCidr.Text.Trim() 1024) } catch { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'CIDR không hợp lệ','OK','Warning')|Out-Null; return }
     $arr=@($cmbScanAdapter.Tag); $adapter=$arr[$cmbScanAdapter.SelectedIndex]; $ai=Get-AdapterIPv4Info $adapter
     if(-not $ai){[System.Windows.Forms.MessageBox]::Show('Card mạng đã thay đổi hoặc không còn IPv4 hợp lệ. Hãy chọn lại card mạng.','Network Scan','OK','Warning')|Out-Null;return}
+    $primaryCidr=$txtCidr.Text.Trim()
+    $routePlan=$null
+    try {
+        if($chkRouteAware.Checked){
+            $routePlan=New-RftRouteAwareScanPlan -PrimaryCidr $primaryCidr -InterfaceIndex ([int]$ai.InterfaceIndex) -MaxAutoSubnets 4 -MaxTotalHosts 1024 -MaxAutoHostsPerSubnet 254
+            $targets=@($routePlan.Targets)
+            if([int]$routePlan.AutoScopeCount -gt 0){
+                $autoCidrs=@($routePlan.Scopes | Where-Object {[string]$_.Source -eq 'Route'} | ForEach-Object {[string]$_.Cidr})
+                $scopeText=[string]::Join([Environment]::NewLine,$autoCidrs)
+                $confirmText="Route-aware sẽ thêm $($routePlan.AutoScopeCount) private routed scope:`n$scopeText`n`nTổng unique targets: $($routePlan.TotalTargets) (giới hạn 1024).`nChỉ tiếp tục nếu bạn được phép kiểm tra các mạng này.`n`nTiếp tục scan?"
+                $choice=[System.Windows.Forms.MessageBox]::Show($confirmText,'Xác nhận Route-aware scan',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning)
+                if($choice -ne [System.Windows.Forms.DialogResult]::Yes){return}
+            }
+        }else{
+            $targets=@(Get-IPv4HostsFromCidr $primaryCidr 1024)
+        }
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'Phạm vi scan không hợp lệ','OK','Warning')|Out-Null
+        return
+    }
 
     Stop-DiscoveryWorker
     if($discoveryTimer){$discoveryTimer.Stop()}
@@ -3033,10 +3064,18 @@ $btnScan.Add_Click({
     $script:CurrentScanProfile=[string]$settings.Profile
     $script:CurrentScanStartedAt=Get-Date
     $script:DiscoveryDurationSec=[int]$settings.DiscoveryDurationSec
-    $script:ScanContext=[pscustomobject]@{LocalIP=$ai.IP;Gateway=$ai.Gateway;InterfaceIndex=$ai.InterfaceIndex;AdapterName=$adapter.Name;CIDR=$txtCidr.Text.Trim();Profile=[string]$settings.Profile}
+    $scopeCidrs=if($routePlan){@($routePlan.Scopes|ForEach-Object {[string]$_.Cidr})}else{@($primaryCidr)}
+    $routeQueryError=if($routePlan){[string]$routePlan.RouteQueryError}else{''}
+    $script:ScanContext=[pscustomobject]@{
+        LocalIP=$ai.IP;Gateway=$ai.Gateway;InterfaceIndex=$ai.InterfaceIndex;AdapterName=$adapter.Name;
+        CIDR=$primaryCidr;Profile=[string]$settings.Profile;RouteAware=[bool]$chkRouteAware.Checked;
+        Scopes=@($scopeCidrs);ScopeCount=@($scopeCidrs).Count;RouteQueryError=$routeQueryError
+    }
     $scanProgress.Value=0;$lblScanSummary.Text="$($settings.Profile) | Online 0 | L2 0 | NDP6 0 | IPv4 0"
-    $btnScan.Enabled=$false;$btnStopScan.Enabled=$true;$cmbScanAdapter.Enabled=$false;$txtCidr.Enabled=$false;$cmbScanProfile.Enabled=$false
-    $lblScanStatus.Text="Khởi động $($settings.Profile): ICMP nhanh toàn dải $($targets.Count) IP..."
+    $btnScan.Enabled=$false;$btnStopScan.Enabled=$true;$cmbScanAdapter.Enabled=$false;$txtCidr.Enabled=$false;$cmbScanProfile.Enabled=$false;$chkRouteAware.Enabled=$false
+    $scopeMode=if($routePlan){"Route-aware $(@($scopeCidrs).Count) scope"}else{"CIDR $primaryCidr"}
+    $routeNote=if($routePlan -and $routePlan.RouteQueryError){" | route query fallback: $($routePlan.RouteQueryError)"}else{''}
+    $lblScanStatus.Text="Khởi động $($settings.Profile): $scopeMode | $($targets.Count) IP$routeNote"
     $lblScanStatus.ForeColor=[Drawing.Color]::DarkOrange
 
     try {
@@ -3044,7 +3083,7 @@ $btnScan.Add_Click({
         $scanWorkerTimer.Start()
     } catch {
         $script:ScanActive=$false
-        $btnScan.Enabled=$true;$btnStopScan.Enabled=$false;$cmbScanAdapter.Enabled=$true;$txtCidr.Enabled=$true;$cmbScanProfile.Enabled=$true
+        $btnScan.Enabled=$true;$btnStopScan.Enabled=$false;$cmbScanAdapter.Enabled=$true;$txtCidr.Enabled=$true;$cmbScanProfile.Enabled=$true;$chkRouteAware.Enabled=$true
         $lblScanStatus.Text="Không thể khởi động scan worker: $($_.Exception.Message)"
         $lblScanStatus.ForeColor=[Drawing.Color]::Firebrick
         Write-RuntimeLog 'SCAN-WORKER-START' ($_ | Out-String)

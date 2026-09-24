@@ -10,7 +10,7 @@ psbom=pzip.with_suffix('.spdx.json'); zsbom=zportable.with_suffix('.spdx.json')
 manifest_name=f'RELEASE_MANIFEST_{tag}.json'
 required={
  'START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1',
- 'RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','README.txt','VERSION','SHA256.txt'
+ 'RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-RoutePlanner.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','README.txt','VERSION','SHA256.txt'
 }
 def sha(p):
  h=hashlib.sha256()
@@ -76,11 +76,11 @@ checks={
  'project_zip_no_vcs_metadata':pzip.is_file() and zip_has_no_vcs_metadata(pzip),
  'portable_zip_top_folder':zportable.is_file() and zip_top_folder(zportable,portable.name),
  'no_pycache_project':not any('__pycache__' in p.parts or p.suffix=='.pyc' for p in root.rglob('*')),
- 'portable_runtime_workers':all((portable/x).is_file() for x in ['RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1']),
+ 'portable_runtime_workers':all((portable/x).is_file() for x in ['RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-RoutePlanner.ps1','RF-Network-Tool-DiscoveryWorker.ps1']),
  'portable_has_readme':(portable/'README.txt').is_file() and 'MONITORING' in (portable/'README.txt').read_text(encoding='utf-8-sig'),
  'vbs_ascii_no_bom':not vbs.startswith(b'\xef\xbb\xbf') and all(x<128 for x in vbs),
  'cmd_ascii_no_bom':all(not b.startswith(b'\xef\xbb\xbf') and all(x<128 for x in b) for b in cmds),
- 'windows_v142_tests_in_full':all((root/x).is_file() for x in ['RUN-REAL-MACHINE-QUALIFICATION.cmd','RF-Network-Tool-RealMachineQualification.ps1','tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','tests/WINDOWS_CHAOS_TEST_v1_4_2.ps1','tests/WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','tests/WINDOWS_REAL_LAN_TEST_v1_4_2.ps1','tests/WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1','tests/WINDOWS_LINT_GATE_v1_4_2.ps1','tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1','tests/WINDOWS_SMOKE_TEST_v1_4_2.md','tests/ipv6_ndp_contract_v1_4_2.py','tests/security_audit_v1_4_2.py','tests/real_machine_harness_contract_v1_4_2.py','tests/reproducible_package_test_v1_4_2.py','tests/release_sbom_test_v1_4_2.py','tests/version_contract.py','release_tools/build_release.py','release_tools/build_sbom.py']),
+ 'windows_v142_tests_in_full':all((root/x).is_file() for x in ['RUN-REAL-MACHINE-QUALIFICATION.cmd','RF-Network-Tool-RealMachineQualification.ps1','tests/WINDOWS_INTEGRATION_TEST_v1_4_2.ps1','tests/WINDOWS_CHAOS_TEST_v1_4_2.ps1','tests/WINDOWS_PERFORMANCE_TEST_v1_4_2.ps1','tests/WINDOWS_REAL_LAN_TEST_v1_4_2.ps1','tests/WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1','tests/WINDOWS_LINT_GATE_v1_4_2.ps1','tests/WINDOWS_LAUNCHER_E2E_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_v1_4_2.ps1','tests/WINDOWS_MACHINE_CLEANLINESS_TEST_v1_4_2.ps1','tests/WINDOWS_SMOKE_TEST_v1_4_2.md','tests/ipv6_ndp_contract_v1_4_2.py','tests/route_scope_contract_v1_5_1.py','tests/WINDOWS_ROUTE_SCOPE_TEST_v1_5_1.ps1','tests/WINDOWS_ROUTE_SCOPE_LIVE_TEST_v1_5_1.ps1','tests/security_audit_v1_4_2.py','tests/real_machine_harness_contract_v1_4_2.py','tests/reproducible_package_test_v1_4_2.py','tests/release_sbom_test_v1_4_2.py','tests/version_contract.py','release_tools/build_release.py','release_tools/build_sbom.py']),
  'release_sbom_tooling_in_full':all((root/x).is_file() for x in ['release_tools/build_sbom.py','tests/release_sbom_test_v1_4_2.py']),
  'ci_workflows_in_full':all((root/x).is_file() for x in ['.github/workflows/ci.yml','.github/workflows/ui-e2e-selfhosted.yml','.github/actionlint.yaml']),
  'portable_no_dev_artifacts':portable.is_dir() and not any((portable/x).exists() for x in ['tests','plans','release_tools','.github','QA_REPORT_v1.4.2.md'])

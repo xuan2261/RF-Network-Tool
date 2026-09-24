@@ -75,6 +75,8 @@ jobs:
           if(-not $summary){throw 'Physical qualification summary.json was not produced.'}
           $data=[IO.File]::ReadAllText($summary.FullName) | ConvertFrom-Json
           $gui=$data.results | Where-Object {$_.name -eq 'interactive_gui_e2e'} | Select-Object -First 1
+          $routePlanner=$data.results | Where-Object {$_.name -eq 'route_scope_planner'} | Select-Object -First 1
+          $routeLive=$data.results | Where-Object {$_.name -eq 'route_scope_live'} | Select-Object -First 1
           $lan=$data.results | Where-Object {$_.name -eq 'real_lan_fast_balanced'} | Select-Object -First 1
           $cleanBaseline=$data.results | Where-Object {$_.name -eq 'machine_cleanliness_baseline'} | Select-Object -First 1
           $cleanPost=$data.results | Where-Object {$_.name -eq 'machine_cleanliness_post'} | Select-Object -First 1
@@ -85,6 +87,8 @@ jobs:
             harnessSourceRevision=[string]$data.sourceRevision
             mode=[string]$data.mode
             interactiveGui=if($gui){[string]$gui.status}else{'MISSING'}
+            routeScopePlanner=if($routePlanner){[string]$routePlanner.status}else{'MISSING'}
+            routeScopeLive=if($routeLive){[string]$routeLive.status}else{'MISSING'}
             realLanFastBalanced=if($lan){[string]$lan.status}else{'MISSING'}
             machineCleanlinessBaseline=if($cleanBaseline){[string]$cleanBaseline.status}else{'MISSING'}
             machineCleanlinessPost=if($cleanPost){[string]$cleanPost.status}else{'MISSING'}
@@ -96,14 +100,20 @@ jobs:
           if(Test-Path -LiteralPath .\ci-artifacts\ui-tab-items.txt){
             Copy-Item -LiteralPath .\ci-artifacts\ui-tab-items.txt -Destination (Join-Path $safeDir 'ui-tab-items.txt') -Force
           }
+          if(Test-Path -LiteralPath .\ci-artifacts\route-aware-live-summary.json){
+            Copy-Item -LiteralPath .\ci-artifacts\route-aware-live-summary.json -Destination (Join-Path $safeDir 'route-aware-live-summary.json') -Force
+          }
           if([string]$data.sourceRevision -ne $actual){throw "Harness source revision mismatch: summary=$($data.sourceRevision) checkout=$actual"}
           if([string]$data.mode -ne 'Full'){throw "Expected Full mode, got $($data.mode)"}
           if(-not $gui -or [string]$gui.status -ne 'PASS'){throw 'interactive_gui_e2e must PASS.'}
+          if(-not $routePlanner -or [string]$routePlanner.status -ne 'PASS'){throw 'route_scope_planner must PASS.'}
+          if(-not $routeLive -or [string]$routeLive.status -ne 'PASS'){throw 'route_scope_live must PASS; SKIP is not release qualification.'}
           if(-not $lan -or [string]$lan.status -ne 'PASS'){throw 'real_lan_fast_balanced must PASS; SKIP is not release qualification.'}
           if(-not $cleanBaseline -or [string]$cleanBaseline.status -ne 'PASS'){throw 'machine_cleanliness_baseline must PASS.'}
           if(-not $cleanPost -or [string]$cleanPost.status -ne 'PASS'){throw 'machine_cleanliness_post must PASS.'}
           if([int]$data.fail -ne 0){throw "Physical qualification recorded $($data.fail) failure(s)."}
           if(-not (Test-Path -LiteralPath (Join-Path $safeDir 'ui-tab-items.txt'))){throw 'ui-tab-items.txt evidence is missing.'}
+          if(-not (Test-Path -LiteralPath (Join-Path $safeDir 'route-aware-live-summary.json'))){throw 'route-aware-live-summary.json evidence is missing.'}
           Write-Host 'PHYSICAL QUALIFICATION REQUIRED GATES PASSED'
 
       - name: Remove raw physical-network evidence
