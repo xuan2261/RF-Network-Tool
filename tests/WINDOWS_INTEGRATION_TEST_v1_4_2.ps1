@@ -18,6 +18,18 @@ function Start-HiddenPs([string]$scriptPath,[string[]]$argumentList){
   $psi=New-Object Diagnostics.ProcessStartInfo;$psi.FileName=$psExe;$psi.Arguments=($parts -join ' ');$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true;$psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
   $proc=New-Object Diagnostics.Process;$proc.StartInfo=$psi;if(-not $proc.Start()){throw "Cannot start $scriptPath"};return $proc
 }
+function Invoke-BoundedPs([string]$scriptPath,[string[]]$argumentList,[int]$timeoutMs,[string]$label){
+  $proc=Start-HiddenPs $scriptPath $argumentList
+  $exited=$false
+  try{
+    $exited=$proc.WaitForExit($timeoutMs)
+    Assert-True $exited ($label+" exits within "+$timeoutMs+"ms")
+    if(-not $exited){try{$proc.Kill()}catch{};try{$proc.WaitForExit(2000)}catch{};return 124}
+    return [int]$proc.ExitCode
+  } finally {
+    try{$proc.Dispose()}catch{}
+  }
+}
 Assert-True ($PSVersionTable.PSEdition -eq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -eq 1) 'Windows PowerShell 5.1 runtime'
 foreach($spec in @(@('Main',$main),@('Launcher',$launcher),@('DiscoveryWorker',$nameWorker),@('ScanWorker',$scanWorker),@('PingWorker',$pingWorker),@('TaskWorker',$taskWorker),@('RoutePlanner',$routePlanner),@('RealMachineQualification',$qualification))){
   $tokens=$null;$parseErrors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile($spec[1],[ref]$tokens,[ref]$parseErrors)
@@ -43,7 +55,8 @@ try{
     $retry=($scanMode -ne 'FAST');$duration=if($scanMode -eq 'FAST'){8}elseif($scanMode -eq 'DEEP'){45}else{20}
     $cfg=[ordered]@{schemaVersion=3;RunId=$runId;Targets=@('127.0.0.1');Profile=$scanMode;LocalIP='127.0.0.1';LocalMAC='02-00-00-00-00-01';InterfaceIndex=1;FastPingTimeoutMs=250;RetryEnabled=$retry;RetryPingTimeoutMs=700;PingConcurrency=8;ArpConcurrency=4;DiscoveryDurationSec=$duration;DiscoveryMode=$scanMode}
     [IO.File]::WriteAllText($config,($cfg|ConvertTo-Json -Depth 4),(New-Object Text.UTF8Encoding($true)))
-    & $scanWorker -ConfigFile $config -StateFile $state -CancelFile $cancel -LogFile $log
+    $scanRc=Invoke-BoundedPs $scanWorker @('-ConfigFile',('"'+$config+'"'),'-StateFile',('"'+$state+'"'),'-CancelFile',('"'+$cancel+'"'),'-LogFile',('"'+$log+'"')) 20000 ("Scan worker "+$scanMode)
+    Assert-True ($scanRc -eq 0) "Scan worker exit 0 $scanMode"
     Assert-True (Test-Path $state) "Scan state $scanMode"
     if(Test-Path $state){$s=[IO.File]::ReadAllText($state)|ConvertFrom-Json;Assert-True ([int]$s.schemaVersion -eq 3) "State schema v3 $scanMode";Assert-True ([string]$s.runId -eq $runId) "State runId $scanMode";Assert-True ([string]$s.profile -eq $scanMode) "State profile $scanMode";Assert-True ([bool]$s.complete) "Complete $scanMode";Assert-True (-not [string]$s.error) "No error $scanMode";Assert-True (@($s.results|Where-Object {$_.IP -eq '127.0.0.1'}).Count -eq 1) "Loopback discovered $scanMode"}
   }
@@ -51,7 +64,8 @@ try{
   # Discovery worker: profile/run identity and cache schema.
   $targets=Join-Path $tmp 'targets.json';$cache=Join-Path $tmp 'discovery-cache.json';$dlog=Join-Path $tmp 'discovery.log';$discRun='disc-'+[guid]::NewGuid().ToString('N')
   [IO.File]::WriteAllText($targets,(@([pscustomobject]@{IP='127.0.0.1';CurrentName='';CurrentSource='Unknown';Status='Online'})|ConvertTo-Json -Depth 3),(New-Object Text.UTF8Encoding($true)))
-  & $nameWorker -TargetsFile $targets -CacheFile $cache -RunId $discRun -DurationSec 5 -DiscoveryProfile FAST -Gateway '' -LocalIP '127.0.0.1' -LogFile $dlog
+  $discRc=Invoke-BoundedPs $nameWorker @('-TargetsFile',('"'+$targets+'"'),'-CacheFile',('"'+$cache+'"'),'-RunId',$discRun,'-DurationSec','5','-DiscoveryProfile','FAST','-Gateway','""','-LocalIP','127.0.0.1','-LogFile',('"'+$dlog+'"')) 20000 'Discovery worker'
+  Assert-True ($discRc -eq 0) 'Discovery worker exit 0'
   Assert-True (Test-Path $cache) 'FAST discovery cache exists'
   if(Test-Path $cache){$dc=[IO.File]::ReadAllText($cache)|ConvertFrom-Json;Assert-True ([int]$dc.schemaVersion -eq 4) 'Discovery schema v4';Assert-True ([string]$dc.runId -eq $discRun) 'Discovery runId';Assert-True ([string]$dc.profile -eq 'FAST') 'Discovery profile FAST'}
 
@@ -87,7 +101,8 @@ try{
   [IO.File]::WriteAllText((Join-Path $ouiDir 'oui.csv'),$csv,[Text.Encoding]::UTF8);[IO.File]::WriteAllText((Join-Path $ouiDir 'mam.csv'),('Registry,Assignment,Organization Name,Organization Address'+"`r`n"+'MA-M,0011223,Vendor B,Test'+"`r`n"),[Text.Encoding]::UTF8);[IO.File]::WriteAllText((Join-Path $ouiDir 'oui36.csv'),('Registry,Assignment,Organization Name,Organization Address'+"`r`n"+'MA-S,001122334,Vendor C,Test'+"`r`n"),[Text.Encoding]::UTF8)
   $taskSession='task-'+[guid]::NewGuid().ToString('N');$taskRun='oui-'+[guid]::NewGuid().ToString('N');$taskCfg=Join-Path $tmp 'task-oui.json';$taskRes=Join-Path $tmp 'task-oui-result.json';$taskHb=Join-Path $tmp 'task-oui-hb.json';$ouiCache=Join-Path $tmp 'oui-cache.tsv'
   [IO.File]::WriteAllText($taskCfg,([ordered]@{schemaVersion=1;sessionId=$taskSession;runId=$taskRun;ouiDir=$ouiDir;cacheFile=$ouiCache}|ConvertTo-Json -Depth 4),(New-Object Text.UTF8Encoding($true)))
-  & $taskWorker -Mode OUI_BUILD_CACHE -ConfigFile $taskCfg -ResultFile $taskRes -SessionId $taskSession -RunId $taskRun -ParentPid $PID -ParentStartTicks $parentTicks -HeartbeatFile $taskHb
+  $ouiRc=Invoke-BoundedPs $taskWorker @('-Mode','OUI_BUILD_CACHE','-ConfigFile',('"'+$taskCfg+'"'),'-ResultFile',('"'+$taskRes+'"'),'-SessionId',$taskSession,'-RunId',$taskRun,'-ParentPid',[string]$PID,'-ParentStartTicks',[string]$parentTicks,'-HeartbeatFile',('"'+$taskHb+'"')) 20000 'OUI task worker'
+  Assert-True ($ouiRc -eq 0) 'OUI task worker exit 0'
   Assert-True (Test-Path $taskRes) 'OUI task result exists';Assert-True (Test-Path $ouiCache) 'OUI compact cache exists'
   if(Test-Path $taskRes){$or=[IO.File]::ReadAllText($taskRes)|ConvertFrom-Json;Assert-True ([bool]$or.success) 'OUI task success';Assert-True ([int]$or.count -eq 3) 'OUI task parsed three fixture assignments'}
   if(Test-Path $ouiCache){$cacheText=[IO.File]::ReadAllText($ouiCache);Assert-True ($cacheText -match '6\t001122\tVendor A') 'OUI MA-L cache record';Assert-True ($cacheText -match '7\t0011223\tVendor B') 'OUI MA-M cache record';Assert-True ($cacheText -match '9\t001122334\tVendor C') 'OUI MA-S cache record'}
@@ -95,7 +110,8 @@ try{
   # DEEP Task Worker: loopback completes with bounded result schema.
   $deepRun='deep-'+[guid]::NewGuid().ToString('N');$deepCfg=Join-Path $tmp 'deep.json';$deepRes=Join-Path $tmp 'deep-result.json';$deepHb=Join-Path $tmp 'deep-hb.json'
   [IO.File]::WriteAllText($deepCfg,([ordered]@{schemaVersion=1;sessionId=$taskSession;runId=$deepRun;interfaceIndex=0;device=[ordered]@{IP='127.0.0.1';MAC='';Brand='';Model='';Type='This PC';Name='Loopback';OS='Windows'}}|ConvertTo-Json -Depth 6),(New-Object Text.UTF8Encoding($true)))
-  & $taskWorker -Mode DEEP -ConfigFile $deepCfg -ResultFile $deepRes -SessionId $taskSession -RunId $deepRun -ParentPid $PID -ParentStartTicks $parentTicks -HeartbeatFile $deepHb
+  $deepRc=Invoke-BoundedPs $taskWorker @('-Mode','DEEP','-ConfigFile',('"'+$deepCfg+'"'),'-ResultFile',('"'+$deepRes+'"'),'-SessionId',$taskSession,'-RunId',$deepRun,'-ParentPid',[string]$PID,'-ParentStartTicks',[string]$parentTicks,'-HeartbeatFile',('"'+$deepHb+'"')) 60000 'DEEP task worker'
+  Assert-True ($deepRc -eq 0) 'DEEP task worker exit 0'
   Assert-True (Test-Path $deepRes) 'DEEP task result exists'
   if(Test-Path $deepRes){$dr=[IO.File]::ReadAllText($deepRes)|ConvertFrom-Json;Assert-True ([bool]$dr.success) 'DEEP task success';Assert-True ($dr.deep -ne $null) 'DEEP payload present';Assert-True (@($dr.deep.PortChecks).Count -ge 10) 'DEEP common port checks returned'}
 
