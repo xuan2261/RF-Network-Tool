@@ -34,6 +34,32 @@ jobs:
         run: |
           python .rft-preflight/prepare.py apply
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Refine native interfaces and culture-independent timestamp parsing
+        shell: powershell
+        run: |
+          @'
+          import hashlib,json
+          from pathlib import Path
+          fixes=json.loads(r'''[{"path":"RF-Network-Tool-Portable.ps1","before":"973dcae9873284a973b1f69e537a59cfcf1a1dffd67b2a8fbce0fc6c406cded6","after":"e8a5bd34dd106871e7786c42049115420e034794a704a9eb2cf694c9f3a60058","replacements":[["New-MonitorRequestStamp","Get-MonitorRequestStamp"],["function Set-MonitorMeasurementError([string]$target,[string]$message) {\n    if(-not $script:MonitoringStats.ContainsKey($target)){return}","function Set-MonitorMeasurementError {\n    [CmdletBinding(SupportsShouldProcess=$true,ConfirmImpact='Low')]\n    param([string]$target,[string]$message)\n    if(-not $script:MonitoringStats.ContainsKey($target)){return}\n    if(-not $PSCmdlet.ShouldProcess($target,'Record local measurement error')){return}"],["[double]::TryParse([string]$result.Time,[ref]$ms)","[double]::TryParse([string]$result.Time,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$ms)"],["[double]::TryParse([string]$result.ObservedMono,[ref]$sampleMono)","[double]::TryParse([string]$result.ObservedMono,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$sampleMono)"],["[double]::TryParse([string]$result.windowElapsedMs,[ref]$ms)","[double]::TryParse([string]$result.windowElapsedMs,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$ms)"]]},{"path":"tests/WINDOWS_MEASUREMENT_TEST_v1_5_3.ps1","before":"026037a85c4c249fb5f376358a0ae66516d78a7950519a6e8915f55a27ee66b4","after":"fdd34816170a835c3106ce015a8a8b87adf30e49e961e449256ee9293ecdc97c","replacements":[["New-MonitorRequestStamp","Get-MonitorRequestStamp"],["        Check 'invalid_sample_not_counted' ($st.TotalCount -eq $count -and $st.MeasurementErrorCount -eq 1)","        Check 'invalid_sample_not_counted' ($st.TotalCount -eq $count -and $st.MeasurementErrorCount -eq 1)\n        $priorCulture=[Threading.Thread]::CurrentThread.CurrentCulture\n        try {\n            foreach($culture in @('en-US','fr-FR','vi-VN')){\n                [Threading.Thread]::CurrentThread.CurrentCulture=[Globalization.CultureInfo]::GetCultureInfo($culture)\n                Fresh;Tick 0.25;Sample $true 1.5;Tick 5;Sample $true 2.5\n                $st=$script:MonitoringStats['192.0.2.1']\n                Check ('invariant_observation_'+$culture) ($st.SuccessCount -eq 2 -and $st.SumMs -eq 4 -and $st.LastSampleMono -eq 105.25 -and $st.MeasurementErrorCount -eq 0)\n            }\n        } finally {[Threading.Thread]::CurrentThread.CurrentCulture=$priorCulture}\n        Fresh;Sample $true 4;Tick\n        Set-MonitorMeasurementError -target '192.0.2.1' -message 'not applied' -WhatIf\n        Check 'measurement_error_whatif_no_mutation' ($script:MonitoringStats['192.0.2.1'].MeasurementErrorCount -eq 0 -and $script:MonitoringStats['192.0.2.1'].CollectorHealth -eq 'OK')"]]}]''')
+          preparer=Path('.rft-preflight/prepare.py')
+          metadata=preparer.read_text(encoding='utf-8')
+          for fix in fixes:
+              path=Path(fix['path']);data=path.read_bytes()
+              assert hashlib.sha256(data).hexdigest()==fix['before'],fix['path']
+              text=data.decode('utf-8')
+              for old,new in fix['replacements']:
+                  assert old in text,fix['path']
+                  text=text.replace(old,new)
+              data=text.encode('utf-8')
+              assert hashlib.sha256(data).hexdigest()==fix['after'],fix['path']
+              path.write_bytes(data)
+              assert metadata.count(fix['before'])==1
+              metadata=metadata.replace(fix['before'],fix['after'])
+          # Only the isolated publisher's expected content hashes change; all tests run after these edits.
+          preparer.write_text(metadata,encoding='utf-8')
+          print('REFINEMENTS_HASH_VERIFIED')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Native production-function and real-control regression tests
         shell: powershell
         run: .\tests\WINDOWS_MEASUREMENT_TEST_v1_5_3.ps1
