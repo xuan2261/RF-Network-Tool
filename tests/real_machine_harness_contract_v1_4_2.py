@@ -50,6 +50,7 @@ checks={
  'e2e_ui_tree_evidence':all(x in e2e for x in ['ui-tree-dump.txt','ProgrammaticName','AutomationId','ClassName']),
  'e2e_tab_name_normalization':'$normalizedExpected=Normalize-UiName $expected' in e2e,
  'e2e_timeout_uses_argument_string':'Process timeout: $exe $argumentString' in e2e and 'Process timeout: $exe $args' not in e2e,
+ 'e2e_sandbox_includes_route_planner':"'RF-Network-Tool-RoutePlanner.ps1'" in e2e and '$runtime=@(' in e2e,
  'real_lan_private_only':'refusing to probe a public IPv4 subnet' in lan and 'Test-LocalSafeIPv4' in lan,
  'real_lan_not_applicable':'exit 3' in lan and 'no active physical private/link-local/CGNAT' in lan,
  'real_lan_physical_default':'HardwareInterface' in lan and 'VMware|VirtualBox' in lan,
