@@ -41,6 +41,9 @@ checks={
         'Get-IPv4HostsFromCidr $primaryCidr 1024' in main,
     'ui_route_scope_evidence':
         'RouteAware=' in main and 'Scopes=' in main and 'ScopeCount=' in main,
+    'ui_route_aware_start_failure_recovers_control':
+        '$cmbScanProfile.Enabled=$true;$chkRouteAware.Enabled=$true' in main
+        and 'Không thể khởi động scan worker:' in main,
     'live_probe_read_only':
         all(x in live for x in ['Get-NetIPConfiguration','New-RftRouteAwareScanPlan','route-aware-live-summary.json'])
         and all(x not in live for x in ['SendARP','PingSweep','New-NetRoute','Set-NetRoute','Remove-NetRoute']),
