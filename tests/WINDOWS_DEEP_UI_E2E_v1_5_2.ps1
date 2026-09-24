@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [ValidateRange(20,120)][int]$TimeoutSec=70,
-    [switch]$FailureExitSelfTest
+    [switch]$FailureExitSelfTest,
+    [switch]$LauncherArgumentSelfTest
 )
 
 $ErrorActionPreference='Stop'
@@ -26,6 +27,12 @@ function Restore-Env([string]$name,[string]$value){
     else{Set-Item -LiteralPath ("Env:"+$name) -Value $value}
 }
 
+function Get-LauncherArgumentLine([string]$launcherPath,[switch]$Diagnostic){
+    $line='-STA -NoProfile -ExecutionPolicy Bypass -File "'+$launcherPath+'"'
+    if($Diagnostic){$line+=' -Diagnostic'}
+    return $line
+}
+
 function Get-SafeDetail([string]$text){
     if($null -eq $text){return ''}
     foreach($value in @([string]$env:USERPROFILE,[string]$env:USERNAME,[string]$env:COMPUTERNAME,[string]$root,[string]$tmp)){
@@ -42,6 +49,32 @@ if($FailureExitSelfTest){
     exit 23
 }
 
+if($LauncherArgumentSelfTest){
+    $selfProc=$null
+    try{
+        $selfPsi=New-Object Diagnostics.ProcessStartInfo
+        $selfPsi.FileName=$psExe
+        $selfPsi.Arguments=Get-LauncherArgumentLine -launcherPath $launcher -Diagnostic
+        $selfPsi.UseShellExecute=$false
+        $selfPsi.RedirectStandardOutput=$true
+        $selfPsi.RedirectStandardError=$true
+        $selfProc=New-Object Diagnostics.Process
+        $selfProc.StartInfo=$selfPsi
+        if(-not $selfProc.Start()){throw 'Failed to start launcher argument self-test.'}
+        if(-not $selfProc.WaitForExit(30000)){try{$selfProc.Kill()}catch{Write-Host ('WARN self-test kill: '+$_.Exception.Message)};throw 'Launcher argument self-test timed out.'}
+        $selfOut=$selfProc.StandardOutput.ReadToEnd();$selfErr=$selfProc.StandardError.ReadToEnd()
+        if($selfProc.ExitCode -ne 0){throw ("Launcher argument self-test exit={0}; stderr={1}" -f $selfProc.ExitCode,(Get-SafeDetail $selfErr))}
+        if($selfOut -notmatch 'PASS: PowerShell/STA/WinForms'){throw 'Launcher argument self-test did not observe diagnostic PASS.'}
+        Write-Host 'PASS deep UI launcher argument quoting self-test'
+        exit 0
+    }catch{
+        Write-Host ('FAIL deep_ui_e2e launcher-argument-self-test :: '+(Get-SafeDetail $_.Exception.Message)) -ForegroundColor Red
+        exit 24
+    }finally{
+        if($selfProc){try{$selfProc.Dispose()}catch{Write-Host ('WARN self-test dispose: '+$_.Exception.Message)}}
+    }
+}
+
 try {
     if(-not [Environment]::UserInteractive){throw 'Interactive desktop is required for deep UI E2E.'}
     if(-not (Test-Path -LiteralPath $launcher)){throw "Launcher script missing: $launcher"}
@@ -53,7 +86,7 @@ try {
 
     $psi=New-Object Diagnostics.ProcessStartInfo
     $psi.FileName=$psExe
-    $psi.Arguments="-STA -NoProfile -ExecutionPolicy Bypass -File \`"$launcher\`""
+    $psi.Arguments=Get-LauncherArgumentLine -launcherPath $launcher
     $psi.UseShellExecute=$false
     $psi.RedirectStandardError=$true
     $proc=New-Object Diagnostics.Process
