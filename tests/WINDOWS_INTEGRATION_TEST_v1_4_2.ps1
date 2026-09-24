@@ -9,6 +9,7 @@ $pingWorker=Join-Path $root 'RF-Network-Tool-PingWorker.ps1'
 $taskWorker=Join-Path $root 'RF-Network-Tool-TaskWorker.ps1'
 $qualification=Join-Path $root 'RF-Network-Tool-RealMachineQualification.ps1'
 $routePlanner=Join-Path $root 'RF-Network-Tool-RoutePlanner.ps1'
+$deepUiE2e=Join-Path $root 'tests\WINDOWS_DEEP_UI_E2E_v1_5_2.ps1'
 $fail=New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$condition,[string]$name){if($condition){Write-Host "PASS $name" -ForegroundColor Green}else{Write-Host "FAIL $name" -ForegroundColor Red;[void]$fail.Add($name)}}
 function Wait-Path([string]$path,[int]$timeoutMs=7000){$sw=[Diagnostics.Stopwatch]::StartNew();while($sw.ElapsedMilliseconds -lt $timeoutMs){if(Test-Path -LiteralPath $path){return $true};Start-Sleep -Milliseconds 80};return $false}
@@ -31,7 +32,7 @@ function Invoke-BoundedPs([string]$scriptPath,[string[]]$argumentList,[int]$time
   }
 }
 Assert-True ($PSVersionTable.PSEdition -eq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -eq 1) 'Windows PowerShell 5.1 runtime'
-foreach($spec in @(@('Main',$main),@('Launcher',$launcher),@('DiscoveryWorker',$nameWorker),@('ScanWorker',$scanWorker),@('PingWorker',$pingWorker),@('TaskWorker',$taskWorker),@('RoutePlanner',$routePlanner),@('RealMachineQualification',$qualification))){
+foreach($spec in @(@('Main',$main),@('Launcher',$launcher),@('DiscoveryWorker',$nameWorker),@('ScanWorker',$scanWorker),@('PingWorker',$pingWorker),@('TaskWorker',$taskWorker),@('RoutePlanner',$routePlanner),@('RealMachineQualification',$qualification),@('DeepUiE2E',$deepUiE2e))){
   $tokens=$null;$parseErrors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile($spec[1],[ref]$tokens,[ref]$parseErrors)
   Assert-True (-not $parseErrors -or $parseErrors.Count -eq 0) ("Parser "+$spec[0])
   if($parseErrors){foreach($pe in $parseErrors){Write-Host ("  line {0}: {1}" -f $pe.Extent.StartLineNumber,$pe.Message)}}
@@ -40,6 +41,15 @@ foreach($spec in @(@('Main',$main),@('Launcher',$launcher),@('DiscoveryWorker',$
 $mainText=[IO.File]::ReadAllText($main)
 Assert-True ($mainText.Contains('function Repair-ScanGridIndex') -and $mainText.Contains('function Finalize-PingRequest')) 'Runtime integrity helpers present'
 Assert-True ($mainText.Contains("'PENDING'") -and $mainText.Contains("'WAITING'") -and $mainText.Contains("'ENGINE ERROR'")) 'Monitoring engine-state UI markers present'
+Assert-True ($mainText.Contains("History (MAC match)") -and $mainText.Contains('LastNameSource') -and -not $mainText.Contains("if($h.LastIP -eq $ip -and $h.LastName)")) 'History naming is MAC-bound and provenance-gated'
+Assert-True ($mainText.Contains('$deepState=[pscustomobject]@') -and $mainText.Contains('StartupTimeoutSec=12') -and $mainText.Contains('Deep worker không phát heartbeat')) 'Deep UI worker uses shared state and startup watchdog'
+Assert-True ($mainText.Contains('RFT_DEEP_UI_E2E') -and $mainText.Contains("Write-DeepUiE2eResult -status 'PASS' -stage 'completed'") -and (Test-Path -LiteralPath $deepUiE2e)) 'Deep UI regression hook and bounded E2E harness present'
+$deepFailRc=Invoke-BoundedPs $deepUiE2e @('-FailureExitSelfTest') 10000 'Deep UI failure-exit self-test'
+Assert-True ($deepFailRc -eq 23) 'Deep UI E2E failure path propagates a non-zero exit code'
+$deepQuoteRc=Invoke-BoundedPs $deepUiE2e @('-LauncherArgumentSelfTest') 40000 'Deep UI launcher argument quoting self-test'
+Assert-True ($deepQuoteRc -eq 0) 'Deep UI E2E launcher argument quoting executes production diagnostic entrypoint'
+Assert-True ($mainText.Contains("@('MonSamples','OK/TOTAL',8)") -and $mainText.Contains("@('MonLastSample','LAST SAMPLE',10)") -and $mainText.Contains('MonitoringSessionStartedAt')) 'Monitoring exposes sample auditability and session horizon'
+Assert-True ($mainText.Contains('$script:MonitoringEvents|Sort-Object At -Descending') -and -not $mainText.Contains('$script:MonitoringEvents|Select-Object -Last 200')) 'Monitoring grid renders the full retained timeline'
 
 # Launcher diagnostic: exercises the real launcher, STA, WinForms load, parser sweep and data-dir bootstrap.
 $psExe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -58,7 +68,7 @@ try{
     $scanRc=Invoke-BoundedPs $scanWorker @('-ConfigFile',('"'+$config+'"'),'-StateFile',('"'+$state+'"'),'-CancelFile',('"'+$cancel+'"'),'-LogFile',('"'+$log+'"')) 20000 ("Scan worker "+$scanMode)
     Assert-True ($scanRc -eq 0) "Scan worker exit 0 $scanMode"
     Assert-True (Test-Path $state) "Scan state $scanMode"
-    if(Test-Path $state){$s=[IO.File]::ReadAllText($state)|ConvertFrom-Json;Assert-True ([int]$s.schemaVersion -eq 3) "State schema v3 $scanMode";Assert-True ([string]$s.runId -eq $runId) "State runId $scanMode";Assert-True ([string]$s.profile -eq $scanMode) "State profile $scanMode";Assert-True ([bool]$s.complete) "Complete $scanMode";Assert-True (-not [string]$s.error) "No error $scanMode";Assert-True (@($s.results|Where-Object {$_.IP -eq '127.0.0.1'}).Count -eq 1) "Loopback discovered $scanMode"}
+    if(Test-Path $state){$s=[IO.File]::ReadAllText($state)|ConvertFrom-Json;Assert-True ([int]$s.schemaVersion -eq 3) "State schema v3 $scanMode";Assert-True ([string]$s.runId -eq $runId) "State runId $scanMode";Assert-True ([string]$s.profile -eq $scanMode) "State profile $scanMode";Assert-True ([bool]$s.complete) "Complete $scanMode";Assert-True (-not [string]$s.error) "No error $scanMode";Assert-True (@($s.results|Where-Object {$_.IP -eq '127.0.0.1'}).Count -eq 1) "Loopback discovered $scanMode";Assert-True ($s.metrics.PSObject.Properties['PhaseElapsedMs'] -and $s.metrics.PhaseElapsedMs.PSObject.Properties['icmp-fast'] -and $s.metrics.PhaseElapsedMs.PSObject.Properties['arp-active']) "Phase timings present $scanMode"}
   }
 
   # Discovery worker: profile/run identity and cache schema.

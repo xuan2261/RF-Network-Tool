@@ -82,6 +82,7 @@ $effectiveRetryConcurrency=[Math]::Min($pingConcurrency,64)
 $effectiveArpConcurrency=$arpConcurrency
 $ipv6Neighbors=@()
 $ipv6NeighborError=''
+$phaseElapsedMs=[ordered]@{}
 
 function Get-OrCreateResult([string]$ip) {
     if(-not $results.ContainsKey($ip)){
@@ -133,6 +134,7 @@ function Write-State([bool]$complete=$false,[bool]$cancelled=$false,[string]$err
                 RetryEnabled=$retryEnabled
                 DiscoveryMode=$discoveryMode
                 DiscoveryDurationSec=$discoveryDurationSec
+                PhaseElapsedMs=$phaseElapsedMs
             }
             results=@($results.Values | Where-Object {$_.Status -ne 'Unknown'} | Sort-Object IP)
         }
@@ -230,7 +232,7 @@ try {
     if($total -eq 0){$phase='done';$done=0;Write-State $true $false '';exit 0}
 
     # PASS 1: fast ICMP across the complete requested range first, publishing after each bounded chunk.
-    $phase='icmp-fast';$done=0;Write-State $false $false ''
+    $phase='icmp-fast';$done=0;$phaseStartMs=$workerSw.ElapsedMilliseconds;Write-State $false $false ''
     $fastTimes=New-Object System.Collections.Generic.List[double]
     $chunkSize=[Math]::Max(8,$effectivePingConcurrency)
     for($offset=0;$offset -lt $total;$offset+=$chunkSize){
@@ -249,6 +251,7 @@ try {
         }
         $done=[Math]::Min($total,$last+1);Write-State $false $false ''
     }
+    $phaseElapsedMs['icmp-fast']=[int]($workerSw.ElapsedMilliseconds-$phaseStartMs)
     $fastSuccessCount=$fastTimes.Count
     $fastResponseRate=if($total -gt 0){[Math]::Round(100.0*$fastSuccessCount/$total,1)}else{0}
     $fastAverageMs=if($fastTimes.Count -gt 0){[Math]::Round(($fastTimes | Measure-Object -Average).Average,1)}else{0}
@@ -272,7 +275,7 @@ try {
     # PASS 2: retry only misses when the profile enables it.
     $retryTargets=@($targets | Where-Object { -not $results.ContainsKey($_) -or $results[$_].Status -ne 'Online' })
     $phase=if($retryEnabled){'icmp-retry'}else{'icmp-retry-skipped'}
-    $done=0;Write-State $false $false ''
+    $done=0;$phaseStartMs=$workerSw.ElapsedMilliseconds;Write-State $false $false ''
     if($retryEnabled -and $retryTargets.Count -gt 0){
         $chunkSize=[Math]::Max(4,$effectiveRetryConcurrency)
         for($offset=0;$offset -lt $retryTargets.Count;$offset+=$chunkSize){
@@ -297,11 +300,12 @@ try {
             elseif(-not $retryEnabled -and $results[$ip].IcmpRetryStatus -eq 'Not attempted'){$results[$ip].IcmpRetryStatus='Skipped - FAST profile'}
         }
     }
+    $phaseElapsedMs['icmp-retry']=[int]($workerSw.ElapsedMilliseconds-$phaseStartMs)
     $done=$retryTargets.Count;Write-State $false $false ''
 
     # PASS 3: active ARP across the whole on-link range, progressively publishing L2-only hosts.
     if(Test-Cancelled){$phase='cancelled';Write-State $true $true '';exit 0}
-    $phase='arp-active';$done=0;Write-State $false $false ''
+    $phase='arp-active';$done=0;$phaseStartMs=$workerSw.ElapsedMilliseconds;Write-State $false $false ''
     $chunkSize=[Math]::Max(4,$effectiveArpConcurrency)
     for($offset=0;$offset -lt $total;$offset+=$chunkSize){
         if(Test-Cancelled){$phase='cancelled';Write-State $true $true '';exit 0}
@@ -326,11 +330,12 @@ try {
         $x=Get-OrCreateResult $localIp;$x.MAC=$localMac
         if($x.Status -ne 'Online'){$x.Status='L2 Seen';$x.Latency='Local';$x.Evidence='Local adapter'}
     }
+    $phaseElapsedMs['arp-active']=[int]($workerSw.ElapsedMilliseconds-$phaseStartMs)
     Write-State $false $false ''
 
     # PASS 4: merge the Windows neighbor cache after ICMP + ARP warmed it.
     if(Test-Cancelled){$phase='cancelled';Write-State $true $true '';exit 0}
-    $phase='neighbor-merge';$done=0;Write-State $false $false ''
+    $phase='neighbor-merge';$done=0;$phaseStartMs=$workerSw.ElapsedMilliseconds;Write-State $false $false ''
     try {
         if(Get-Command Get-NetNeighbor -ErrorAction SilentlyContinue){
             $targetSet=@{};foreach($ip in $targets){$targetSet[$ip]=$true}
@@ -348,12 +353,13 @@ try {
             }
         }
     } catch { Write-WorkerLog ('Get-NetNeighbor failed: '+$_.Exception.Message) }
+    $phaseElapsedMs['neighbor-merge']=[int]($workerSw.ElapsedMilliseconds-$phaseStartMs)
     $done=$total;Write-State $false $false ''
 
     # PASS 5: passive IPv6 Neighbor Discovery snapshot on the selected interface.
     # Never enumerate the IPv6 address space; only report entries already observed by Windows NDP.
     if(Test-Cancelled){$phase='cancelled';Write-State -complete $true -cancelled $true -errorMessage '';exit 0}
-    $phase='ipv6-neighbor-snapshot';$done=0;Write-State -complete $false -cancelled $false -errorMessage ''
+    $phase='ipv6-neighbor-snapshot';$done=0;$phaseStartMs=$workerSw.ElapsedMilliseconds;Write-State -complete $false -cancelled $false -errorMessage ''
     try {
         $ipv6Map=@{}
         if(Get-Command -Name Get-NetNeighbor -ErrorAction SilentlyContinue){
@@ -392,11 +398,12 @@ try {
         $ipv6NeighborError=$_.Exception.Message
         Write-WorkerLog -message ('IPv6 NDP snapshot failed: '+$ipv6NeighborError)
     }
+    $phaseElapsedMs['ipv6-neighbor-snapshot']=[int]($workerSw.ElapsedMilliseconds-$phaseStartMs)
     $done=@($ipv6Neighbors).Count;Write-State -complete $false -cancelled $false -errorMessage ''
 
     $phase='done';$done=$total;Write-State $true $false ''
     $discoveredCount=@($results.Values | Where-Object {$_.Status -ne 'Unknown'}).Count
-    Write-WorkerLog "DONE Profile=$scanProfile Online=$online Seen=$seen IPv6Neighbors=$(@($ipv6Neighbors).Count) TotalDiscoveredIPv4=$discoveredCount ElapsedMs=$($workerSw.ElapsedMilliseconds)"
+    Write-WorkerLog "DONE Profile=$scanProfile Online=$online Seen=$seen IPv6Neighbors=$(@($ipv6Neighbors).Count) TotalDiscoveredIPv4=$discoveredCount ElapsedMs=$($workerSw.ElapsedMilliseconds) PhaseMs=$((ConvertTo-Json -InputObject $phaseElapsedMs -Compress))"
     exit 0
 } catch {
     $msg=$_.Exception.Message

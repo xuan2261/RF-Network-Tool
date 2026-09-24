@@ -46,6 +46,9 @@ $PingHeartbeatFile = Join-Path $PingIpcDir 'worker-state.json'
 $RuntimeLogDir = Join-Path $DataDir 'logs'
 try { if (-not (Test-Path -LiteralPath $RuntimeLogDir)) { [void](New-Item -ItemType Directory -Path $RuntimeLogDir -Force) } } catch { }
 $RuntimeLogFile = Join-Path $RuntimeLogDir ("runtime-{0}.log" -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+$script:DeepUiE2eMode = ([string]$env:RFT_DEEP_UI_E2E -eq '1')
+$script:DeepUiE2eResultFile = ([string]$env:RFT_DEEP_UI_E2E_RESULT).Trim()
+$script:DeepUiE2eLaunchState = [pscustomobject]@{Timer=$null;Row=$null}
 
 $script:TargetRows = @{}
 $script:TargetSchemaVersion = 2
@@ -87,6 +90,7 @@ $script:DeviceHistory = @{}
 $script:ScanHistory = @()
 $script:CurrentScanProfile = 'BALANCED'
 $script:CurrentScanStartedAt = $null
+$script:CurrentScanCoreElapsedMs = 0
 $script:MainForm = $null
 $script:DiscoverySnapshotReady = $false
 $script:MdnsNameCache = @{}
@@ -107,6 +111,7 @@ $script:MonitoringLoaded = $false
 $script:MonitoringLastUiRefresh = $null
 $script:MonitoringSchedulerBusy = $false
 $script:MonitoringGridUpdating = $false
+$script:MonitoringSessionStartedAt = Get-Date
 
 function Write-RuntimeLog([string]$area, [string]$message) {
     try {
@@ -130,6 +135,24 @@ function Write-TextAtomic([string]$path, [string]$text, [System.Text.Encoding]$e
     } finally {
         if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
+}
+
+function Write-DeepUiE2eResult([string]$status,[string]$stage,[string]$detail,[object]$deepState=$null) {
+    if(-not $script:DeepUiE2eMode -or [string]::IsNullOrWhiteSpace($script:DeepUiE2eResultFile)){return}
+    try {
+        $payload=[ordered]@{
+            schemaVersion=1
+            status=$status
+            stage=$stage
+            detail=$detail
+            recordedAt=(Get-Date).ToString('o')
+            workerCompleted=if($deepState){[bool]$deepState.Completed}else{$false}
+            workerSucceeded=if($deepState){[bool]$deepState.Succeeded}else{$false}
+            lastPhase=if($deepState){[string]$deepState.LastPhase}else{''}
+            lastError=if($deepState){[string]$deepState.LastError}else{''}
+        }
+        Write-TextAtomic $script:DeepUiE2eResultFile (ConvertTo-Json -InputObject $payload -Depth 4)
+    } catch { Write-RuntimeLog 'DEEP-UI-E2E' ($_ | Out-String) }
 }
 
 function Remove-TransientRuntimeFiles {
@@ -948,13 +971,18 @@ function Update-DeviceHistory($device,[bool]$incrementSeen=$false) {
     }
 
     if(-not $script:DeviceHistory.ContainsKey($key)){
-        $script:DeviceHistory[$key]=[pscustomobject]@{Key=$key;FirstSeen=$now;LastSeen=$now;SeenCount=0;LastIP=$device.IP;LastMAC=$device.MAC;LastName=$device.Name;LastBrand=$device.Brand;LastModel=$device.Model;LastType=$device.Type}
+        $script:DeviceHistory[$key]=[pscustomobject]@{Key=$key;FirstSeen=$now;LastSeen=$now;SeenCount=0;LastIP=$device.IP;LastMAC=$device.MAC;LastName='';LastNameSource='';LastBrand=$device.Brand;LastModel=$device.Model;LastType=$device.Type}
     }
     $h=$script:DeviceHistory[$key]
+    if(-not $h.PSObject.Properties['LastNameSource']){$h|Add-Member -NotePropertyName LastNameSource -NotePropertyValue '' -Force}
     $h.LastSeen=$now
     if($incrementSeen){$h.SeenCount=[int]$h.SeenCount+1}
     $h.LastIP=$device.IP;$h.LastMAC=$device.MAC
-    if($device.Name){$h.LastName=$device.Name}; if($device.Brand){$h.LastBrand=$device.Brand}; if($device.Model){$h.LastModel=$device.Model}; if($device.Type){$h.LastType=$device.Type}
+    $nameSource=''
+    if($device.PSObject.Properties['NameSource']){$nameSource=([string]$device.NameSource).Trim()}
+    # Never let a historical fallback re-poison the identity record. Only current/user evidence may refresh the remembered name.
+    if($device.Name -and $nameSource -and $nameSource -notlike 'History*'){$h.LastName=$device.Name;$h.LastNameSource=$nameSource}
+    if($device.Brand){$h.LastBrand=$device.Brand}; if($device.Model){$h.LastModel=$device.Model}; if($device.Type){$h.LastType=$device.Type}
     return $h
 }
 
@@ -1228,24 +1256,25 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
     $txtProto.Text="Bấm 'Phân tích sâu / Refresh' để kiểm tra ping statistics, neighbor state, common TCP services, HTTP fingerprint, SSDP/UPnP và NetBIOS (khi phù hợp).`r`n`r`nCác trường không được thiết bị công bố sẽ để trống/Unknown; chương trình không giả lập thông tin."
     $initialEvidence=@(Get-DeviceEvidenceRecords $d $null);Set-EvidenceGrid $gridEvidence $initialEvidence;$lblEvidenceSummary.Text=Get-EvidenceSummaryText $d $initialEvidence
 
-    $detailBusy=$false;$lastDeep=$null
-    $deepProcess=$null;$deepTimer=New-Object System.Windows.Forms.Timer;$deepTimer.Interval=250
-    $deepRunId='';$deepResultFile='';$deepHeartbeatFile='';$deepConfigFile='';$deepStartedAt=$null
+    $lastDeep=$null
+    # Mutable state object is shared by all WinForms event scriptblocks; bare local assignments are child-scoped in PowerShell.
+    $deepState=[pscustomobject]@{Busy=$false;Process=$null;RunId='';ResultFile='';HeartbeatFile='';ConfigFile='';StartedAt=$null;SeenHeartbeat=$false;StartupTimeoutSec=12;Completed=$false;Succeeded=$false;LastPhase='';LastError=''}
+    $deepTimer=New-Object System.Windows.Forms.Timer;$deepTimer.Interval=250
 
     $cleanupDeep={
         try{if($deepTimer){$deepTimer.Stop()}}catch{}
-        if($deepProcess){try{if(-not $deepProcess.HasExited){try{$deepProcess.Kill()}catch{}}}catch{};try{$deepProcess.Dispose()}catch{};$deepProcess=$null}
-        foreach($fp in @($deepResultFile,$deepHeartbeatFile,$deepConfigFile)){if($fp){try{Remove-Item -LiteralPath $fp -Force -ErrorAction SilentlyContinue}catch{}}}
-        $deepRunId='';$deepResultFile='';$deepHeartbeatFile='';$deepConfigFile='';$deepStartedAt=$null
-        $detailBusy=$false
+        if($deepState.Process){try{if(-not $deepState.Process.HasExited){try{$deepState.Process.Kill()}catch{}}}catch{};try{$deepState.Process.Dispose()}catch{};$deepState.Process=$null}
+        foreach($fp in @($deepState.ResultFile,$deepState.HeartbeatFile,$deepState.ConfigFile)){if($fp){try{Remove-Item -LiteralPath $fp -Force -ErrorAction SilentlyContinue}catch{}}}
+        $deepState.RunId='';$deepState.ResultFile='';$deepState.HeartbeatFile='';$deepState.ConfigFile='';$deepState.StartedAt=$null;$deepState.SeenHeartbeat=$false
+        $deepState.Busy=$false
         if(-not $f.IsDisposed){$btnDeep.Enabled=$true;$btnClose.Enabled=$true;$btnDeep.Text='Phân tích sâu / Refresh'}
     }
 
     $applyDeep={
         param($deep)
         $lastDeep=$deep
-        if($deep.Brand){$d.Brand=[string]$deep.Brand};if($deep.Model){$d.Model=[string]$deep.Model};if($deep.Type){$d.Type=[string]$deep.Type};if($deep.Name){$d.Name=Normalize-DiscoveredName ([string]$deep.Name)};if($deep.OS){$d.OS=[string]$deep.OS}
-        $row.Cells['Brand'].Value=$d.Brand;$row.Cells['Model'].Value=$d.Model;$row.Cells['Type'].Value=$d.Type;if($d.Name){$row.Cells['Name'].Value=$d.Name}
+        if($deep.Brand){$d.Brand=[string]$deep.Brand};if($deep.Model){$d.Model=[string]$deep.Model};if($deep.Type){$d.Type=[string]$deep.Type};if($deep.Name){$d.Name=Normalize-DiscoveredName ([string]$deep.Name)};if($deep.PSObject.Properties['NameSource'] -and $deep.NameSource){$d.NameSource=[string]$deep.NameSource};if($deep.OS){$d.OS=[string]$deep.OS}
+        $row.Cells['Brand'].Value=$d.Brand;$row.Cells['Model'].Value=$d.Model;$row.Cells['Type'].Value=$d.Type;if($d.Name){$row.Cells['Name'].Value=$d.Name};if($row.Cells['Source']){$row.Cells['Source'].Value=$d.NameSource}
         $lblTitle.Text=if($d.Name){$d.Name}else{$d.IP};$lblSub.Text="$($d.Type)   |   $($d.Brand)   |   $($d.Model)"
         $hist=Update-DeviceHistory $d;Save-DeviceHistory
         Set-PropertyGrid $gOverview ([ordered]@{'Status'=$d.Status;'Device type'=$d.Type;'Brand'=$d.Brand;'Model'=$d.Model;'Operating system'=$d.OS;'Recognition confidence'=$d.Confidence;'Device name'=$d.Name;'Name source'=$d.NameSource;'IP address'=$d.IP;'MAC address'=$d.MAC;'Open TCP ports (common set)'=[string]$deep.PortText})
@@ -1271,52 +1300,89 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
         param([string]$message)
         $err=(New-EvidenceRecord 'Deep analysis' 'ERROR' '' $message (Get-Date).ToString('s'))
         $records=@(Get-DeviceEvidenceRecords $d $lastDeep);$records=@(Merge-EvidenceRecords @($records,@($err)));Set-EvidenceGrid $gridEvidence $records;$lblEvidenceSummary.Text=Get-EvidenceSummaryText $d $records
+        $deepState.Completed=$true;$deepState.Succeeded=$false;$deepState.LastError=$message
         Write-RuntimeLog 'DEVICE-DETAILS-DEEP' $message
     }
 
     $deepTimer.Add_Tick({
         try {
-            if($deepResultFile -and (Test-Path -LiteralPath $deepResultFile)){
-                $res=[IO.File]::ReadAllText($deepResultFile)|ConvertFrom-Json -ErrorAction Stop
-                if([string]$res.sessionId -ne $RuntimeSessionId -or [string]$res.runId -ne $deepRunId){return}
-                if([bool]$res.success){& $applyDeep $res.deep}else{& $showDeepError $(if($res.PSObject.Properties['error']){[string]$res.error}else{'Deep analysis worker failed.'})}
+            if($deepState.ResultFile -and (Test-Path -LiteralPath $deepState.ResultFile)){
+                $res=[IO.File]::ReadAllText($deepState.ResultFile)|ConvertFrom-Json -ErrorAction Stop
+                if([string]$res.sessionId -ne $RuntimeSessionId -or [string]$res.runId -ne $deepState.RunId){return}
+                if([bool]$res.success){$deepState.Completed=$true;$deepState.Succeeded=$true;$deepState.LastPhase='Completed';& $applyDeep $res.deep}else{& $showDeepError $(if($res.PSObject.Properties['error']){[string]$res.error}else{'Deep analysis worker failed.'})}
                 & $cleanupDeep
                 return
             }
-            if($deepHeartbeatFile -and (Test-Path -LiteralPath $deepHeartbeatFile)){
-                $hb=[IO.File]::ReadAllText($deepHeartbeatFile)|ConvertFrom-Json -ErrorAction Stop
-                if([string]$hb.runId -eq $deepRunId){
+            if($deepState.HeartbeatFile -and (Test-Path -LiteralPath $deepState.HeartbeatFile)){
+                $hb=[IO.File]::ReadAllText($deepState.HeartbeatFile)|ConvertFrom-Json -ErrorAction Stop
+                if([string]$hb.runId -eq $deepState.RunId){
+                    $deepState.SeenHeartbeat=$true;$deepState.LastPhase=[string]$hb.phase
                     $age=((Get-Date)-([datetime]$hb.heartbeatAt)).TotalSeconds
                     if($age -gt 35){& $showDeepError "Deep worker heartbeat stale $([int]$age)s";& $cleanupDeep;return}
                     $btnDeep.Text="Đang phân tích: $([string]$hb.phase)"
                 }
             }
-            if($deepProcess -and $deepProcess.HasExited -and -not(Test-Path -LiteralPath $deepResultFile)){
-                & $showDeepError "Deep worker kết thúc không có result (exit=$($deepProcess.ExitCode)).";& $cleanupDeep
+            if(-not $deepState.SeenHeartbeat -and $deepState.StartedAt -and (((Get-Date)-[datetime]$deepState.StartedAt).TotalSeconds -gt [int]$deepState.StartupTimeoutSec)){
+                & $showDeepError "Deep worker không phát heartbeat trong $($deepState.StartupTimeoutSec)s; đã dừng fail-closed.";& $cleanupDeep;return
+            }
+            if($deepState.Process -and $deepState.Process.HasExited -and -not(Test-Path -LiteralPath $deepState.ResultFile)){
+                & $showDeepError "Deep worker kết thúc không có result (exit=$($deepState.Process.ExitCode)).";& $cleanupDeep
             }
         } catch {& $showDeepError $_.Exception.Message;& $cleanupDeep}
     })
 
-    $f.Add_FormClosing({param($source,$evt);if($detailBusy){& $cleanupDeep}})
+    $f.Add_FormClosing({param($source,$evt);if($deepState.Busy){& $cleanupDeep}})
     $btnDeep.Add_Click({
-        if($detailBusy){return}
-        $detailBusy=$true;$btnDeep.Enabled=$false;$btnClose.Enabled=$false;$btnDeep.Text='Đang khởi động worker...'
+        if($deepState.Busy){return}
+        $deepState.Busy=$true;$deepState.Completed=$false;$deepState.Succeeded=$false;$deepState.LastPhase='Starting';$deepState.LastError='';$btnDeep.Enabled=$false;$btnClose.Enabled=$false;$btnDeep.Text='Đang khởi động worker...'
         try {
             if(-not(Test-Path -LiteralPath $TaskWorkerScript)){throw "Không tìm thấy Task Worker: $TaskWorkerScript"}
-            $deepRunId=[guid]::NewGuid().ToString('N')
-            $deepConfigFile=Join-Path $DataDir ("RF-Network-Tool.deep-config.$RuntimeSessionId.$deepRunId.json")
-            $deepResultFile=Join-Path $DataDir ("RF-Network-Tool.deep-result.$RuntimeSessionId.$deepRunId.json")
-            $deepHeartbeatFile=Join-Path $DataDir ("RF-Network-Tool.deep-heartbeat.$RuntimeSessionId.$deepRunId.json")
+            $deepState.RunId=[guid]::NewGuid().ToString('N')
+            $deepState.ConfigFile=Join-Path $DataDir ("RF-Network-Tool.deep-config.$RuntimeSessionId.$($deepState.RunId).json")
+            $deepState.ResultFile=Join-Path $DataDir ("RF-Network-Tool.deep-result.$RuntimeSessionId.$($deepState.RunId).json")
+            $deepState.HeartbeatFile=Join-Path $DataDir ("RF-Network-Tool.deep-heartbeat.$RuntimeSessionId.$($deepState.RunId).json")
             $idx=if($adapterInfoObj){[int]$adapterInfoObj.InterfaceIndex}else{0}
-            $cfg=[ordered]@{schemaVersion=1;sessionId=$RuntimeSessionId;runId=$deepRunId;interfaceIndex=$idx;device=[ordered]@{IP=[string]$d.IP;MAC=[string]$d.MAC;Brand=[string]$d.Brand;Model=[string]$d.Model;Type=[string]$d.Type;Name=[string]$d.Name;OS=[string]$d.OS}}
-            Write-TextAtomic $deepConfigFile (ConvertTo-Json -InputObject $cfg -Depth 8)
+            $cfg=[ordered]@{schemaVersion=1;sessionId=$RuntimeSessionId;runId=$deepState.RunId;interfaceIndex=$idx;device=[ordered]@{IP=[string]$d.IP;MAC=[string]$d.MAC;Brand=[string]$d.Brand;Model=[string]$d.Model;Type=[string]$d.Type;Name=[string]$d.Name;NameSource=[string]$d.NameSource;OS=[string]$d.OS}}
+            Write-TextAtomic $deepState.ConfigFile (ConvertTo-Json -InputObject $cfg -Depth 8)
             $ps=Get-SystemPowerShellPath;$ticks=Get-CurrentProcessStartTicks
-            $processArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"`"$TaskWorkerScript`"",'-Mode','DEEP','-ConfigFile',"`"$deepConfigFile`"",'-ResultFile',"`"$deepResultFile`"",'-SessionId',$RuntimeSessionId,'-RunId',$deepRunId,'-ParentPid',[string]$PID,'-ParentStartTicks',[string]$ticks,'-HeartbeatFile',"`"$deepHeartbeatFile`"") -join ' '
+            $processArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"`"$TaskWorkerScript`"",'-Mode','DEEP','-ConfigFile',"`"$($deepState.ConfigFile)`"",'-ResultFile',"`"$($deepState.ResultFile)`"",'-SessionId',$RuntimeSessionId,'-RunId',$deepState.RunId,'-ParentPid',[string]$PID,'-ParentStartTicks',[string]$ticks,'-HeartbeatFile',"`"$($deepState.HeartbeatFile)`"") -join ' '
             $psi=New-Object Diagnostics.ProcessStartInfo;$psi.FileName=$ps;$psi.Arguments=$processArgs;$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true;$psi.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
-            $deepProcess=New-Object Diagnostics.Process;$deepProcess.StartInfo=$psi;if(-not $deepProcess.Start()){throw 'Không khởi động được Deep Analysis Worker.'}
-            $deepStartedAt=Get-Date;$deepTimer.Start()
+            $deepState.Process=New-Object Diagnostics.Process;$deepState.Process.StartInfo=$psi;if(-not $deepState.Process.Start()){throw 'Không khởi động được Deep Analysis Worker.'}
+            $deepState.StartedAt=Get-Date;$deepState.SeenHeartbeat=$false;$deepTimer.Start()
         } catch {& $showDeepError $_.Exception.Message;& $cleanupDeep}
     })
+    $deepE2eTimer=$null
+    $deepE2eState=[pscustomobject]@{Clicked=$false;StartedAt=$null;ObservedProgress=$false;Done=$false}
+    if($script:DeepUiE2eMode){
+        $deepE2eTimer=New-Object System.Windows.Forms.Timer;$deepE2eTimer.Interval=200
+        $deepE2eTimer.Add_Tick({
+            try {
+                if(-not $deepE2eState.Clicked){
+                    $deepE2eState.Clicked=$true;$deepE2eState.StartedAt=Get-Date
+                    Write-DeepUiE2eResult -status 'RUNNING' -stage 'button-click' -detail 'Invoking the real Phân tích sâu / Refresh button callback.' -deepState $deepState
+                    $btnDeep.PerformClick();return
+                }
+                if($deepState.LastPhase -and $deepState.LastPhase -notin @('Starting','')){$deepE2eState.ObservedProgress=$true}
+                if($deepState.Completed -and -not $deepState.Busy){
+                    $restored=($btnDeep.Enabled -and $btnDeep.Text -eq 'Phân tích sâu / Refresh')
+                    $passed=($deepState.Succeeded -and $deepE2eState.ObservedProgress -and $restored)
+                    if($passed){Write-DeepUiE2eResult -status 'PASS' -stage 'completed' -detail 'Deep UI callback observed worker progress, successful result, and restored controls.' -deepState $deepState}
+                    else{Write-DeepUiE2eResult -status 'FAIL' -stage 'completed' -detail ("Succeeded={0}; ObservedProgress={1}; Restored={2}" -f $deepState.Succeeded,$deepE2eState.ObservedProgress,$restored) -deepState $deepState}
+                    $deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close();return
+                }
+                if($deepE2eState.StartedAt -and (((Get-Date)-[datetime]$deepE2eState.StartedAt).TotalSeconds -gt 45)){
+                    Write-DeepUiE2eResult -status 'FAIL' -stage 'timeout' -detail ("Deep UI did not complete within 45s; button='{0}' busy={1}" -f $btnDeep.Text,$deepState.Busy) -deepState $deepState
+                    if($deepState.Busy){& $cleanupDeep};$deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close()
+                }
+            } catch {
+                Write-DeepUiE2eResult -status 'FAIL' -stage 'exception' -detail $_.Exception.Message -deepState $deepState
+                if($deepState.Busy){& $cleanupDeep};$deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close()
+            }
+        })
+        $f.Add_Shown({$deepE2eTimer.Start()})
+        $f.Add_FormClosed({if($deepE2eTimer){try{$deepE2eTimer.Stop();$deepE2eTimer.Dispose()}catch{Write-RuntimeLog 'DEEP-UI-E2E-CLEANUP' $_.Exception.Message}}})
+    }
+
     $btnCopy.Add_Click({
         $all="DEVICE DETAILS`r`n";foreach($r in $gOverview.Rows){if(-not $r.IsNewRow){$all+="$($r.Cells[0].Value): $($r.Cells[1].Value)`r`n"}};$all+="`r`nNETWORK`r`n";foreach($r in $gNetwork.Rows){if(-not $r.IsNewRow){$all+="$($r.Cells[0].Value): $($r.Cells[1].Value)`r`n"}};$all+="`r`nPROTOCOLS`r`n$($txtProto.Text)`r`n`r`nDISCOVERY EVIDENCE`r`n"
         foreach($er in $gridEvidence.Rows){if(-not $er.IsNewRow){$all+="$($er.Cells['Source'].Value) | $($er.Cells['State'].Value) | $($er.Cells['Value'].Value) | $($er.Cells['Detail'].Value) | $($er.Cells['ObservedAt'].Value)`r`n"}}
@@ -1706,14 +1772,22 @@ function Read-DnsName([byte[]]$bytes,[ref]$offset,[int]$depth=0) {
     return ([string]::Join('.', $labels.ToArray())).Trim('.')
 }
 
-function Get-InitialDeviceName([string]$ip,[string]$resolvedName,[string]$gateway='') {
+function Get-InitialDeviceName([string]$ip,[string]$resolvedName,[string]$gateway='',[string]$mac='') {
     $n=Normalize-DiscoveredName $resolvedName
     if($n){return [pscustomobject]@{Name=$n;Source='System DNS'}}
     $alias=Get-PingAliasForTarget $ip
     if($alias){return [pscustomobject]@{Name=$alias;Source='PING alias'}}
     try {
-        foreach($h in $script:DeviceHistory.Values){
-            if($h.LastIP -eq $ip -and $h.LastName){return [pscustomobject]@{Name=[string]$h.LastName;Source='History'}}
+        $cleanMac=Format-Mac $mac
+        $key=Get-DeviceKey $ip $cleanMac
+        if($key -like 'MAC:*' -and $script:DeviceHistory.ContainsKey($key)){
+            $h=$script:DeviceHistory[$key]
+            $source=''
+            if($h.PSObject.Properties['LastNameSource']){$source=([string]$h.LastNameSource).Trim()}
+            # Legacy v1.5.1 history has no provenance and is intentionally not auto-applied.
+            if($h.LastName -and $source -and $source -notlike 'History*'){
+                return [pscustomobject]@{Name=[string]$h.LastName;Source='History (MAC match)'}
+            }
         }
     } catch { }
     return [pscustomobject]@{Name='';Source='Unknown'}
@@ -1792,7 +1866,7 @@ function Apply-DiscoveryCacheToGrid {
         $items=if($parsed -and $parsed.PSObject.Properties['records']){@($parsed.records)}else{@($parsed)}
         $lookup=@{}
         foreach($it in $items){if($it.IP){$lookup[[string]$it.IP]=$it}}
-        $weak=@('Unknown','PING alias','History')
+        $weak=@('Unknown','PING alias','History','History (MAC match)')
         $gateway='';$localIp=''
         try {
             $arr=@($cmbScanAdapter.Tag)
@@ -2824,7 +2898,7 @@ function Apply-ScanStateToGrid($state) {
         }
         if($null -eq $row){
             $initialResolved=if($ip -eq $ctx.LocalIP){[Environment]::MachineName}else{''}
-            $pref=Get-InitialDeviceName $ip $initialResolved $ctx.Gateway
+            $pref=Get-InitialDeviceName $ip $initialResolved $ctx.Gateway $mac
             $vendor=Get-VendorFromMac $mac
             $fp=Get-DeviceFingerprint $ip $mac ([string]$pref.Name) $vendor $ctx.Gateway $ctx.LocalIP
             $idx=$gridScan.Rows.Add($status,$fp.Type,$fp.Brand,$fp.Model,[string]$pref.Name,[string]$pref.Source,$ip,$mac,$lat,(Get-Date).ToString('HH:mm:ss'))
@@ -2842,7 +2916,7 @@ function Apply-ScanStateToGrid($state) {
         } else {
             $rec=$row.Tag
             if($null -eq $rec){
-                $pref=Get-InitialDeviceName $ip '' $ctx.Gateway
+                $pref=Get-InitialDeviceName $ip '' $ctx.Gateway $mac
                 $vendor=Get-VendorFromMac $mac
                 $fp=Get-DeviceFingerprint $ip $mac ([string]$pref.Name) $vendor $ctx.Gateway $ctx.LocalIP
                 $rec=[pscustomobject]@{Status=$status;IP=$ip;MAC=$mac;Name=[string]$pref.Name;NameSource=[string]$pref.Source;Brand=$fp.Brand;Type=$fp.Type;Model=$fp.Model;OS=$fp.OS;Confidence=$fp.Confidence;Latency=$lat;Evidence=[string]$it.Evidence;ScanEvidence=@(Get-ScanEvidenceRecords $it ([string]$state.updatedAt));DiscoveryEvidence=@()}
@@ -2917,7 +2991,10 @@ $discoveryTimer.Add_Tick({
         } else {
             [void](Apply-DiscoveryCacheToGrid)
             if($script:DiscoveryStartedAt){
-                $lblScanStatus.Text="Hoàn tất $($script:CurrentScanProfile) + nhận dạng tên nền | cập nhật $($script:DiscoveryAppliedCount) tên"
+                $totalSec=if($script:CurrentScanStartedAt){[Math]::Round(((Get-Date)-[datetime]$script:CurrentScanStartedAt).TotalSeconds,1)}else{0}
+                $coreSec=[Math]::Round(([double]$script:CurrentScanCoreElapsedMs/1000.0),1)
+                $lblScanStatus.Text="Hoàn tất $($script:CurrentScanProfile) + nhận dạng tên nền | cập nhật $($script:DiscoveryAppliedCount) tên | Core ${coreSec}s | Total ${totalSec}s"
+                $lblScanSummary.Text="$($script:CurrentScanProfile) | IPv4 $($script:ScanResults.Count) | Core ${coreSec}s | Total ${totalSec}s"
                 $lblScanStatus.ForeColor=[Drawing.Color]::ForestGreen
             }
             $btnStopScan.Enabled=$false
@@ -2972,7 +3049,7 @@ $scanWorkerTimer.Add_Tick({
             $lblScanStatus.Text="$phaseLabel | $([int]$state.online) Online | $([int]$state.seen) L2 Seen | NDP6 $ipv6Count | $(@($state.results).Count) thiết bị IPv4"
             $elapsedText=if($state.PSObject.Properties['elapsedMs']){"$([Math]::Round(([int]$state.elapsedMs)/1000.0,1))s"}else{'-'}
             $profileText=if($state.PSObject.Properties['profile']){[string]$state.profile}else{$script:CurrentScanProfile}
-            $lblScanSummary.Text="$profileText | Online $([int]$state.online) | L2 $([int]$state.seen) | NDP6 $ipv6Count | IPv4 $(@($state.results).Count) | $elapsedText"
+            $lblScanSummary.Text="$profileText | Online $([int]$state.online) | L2 $([int]$state.seen) | NDP6 $ipv6Count | IPv4 $(@($state.results).Count) | Core $elapsedText"
 
             if([bool]$state.complete){
                 $scanWorkerTimer.Stop()
@@ -2995,7 +3072,14 @@ $scanWorkerTimer.Add_Tick({
                     $profileName=if($state.PSObject.Properties['profile']){[string]$state.profile}else{$script:CurrentScanProfile}
                     $durationSec=20
                     if($state.metrics -and $state.metrics.PSObject.Properties['DiscoveryDurationSec']){$durationSec=[int]$state.metrics.DiscoveryDurationSec}
-                    Write-ScanLog $script:ScanLogFile "BASIC DONE Profile=$profileName Online=$([int]$state.online) L2Seen=$([int]$state.seen) IPv6Neighbors=$ipv6Count TotalIPv4=$(@($state.results).Count) ElapsedMs=$([int]$state.elapsedMs)"
+                    $script:CurrentScanCoreElapsedMs=[int]$state.elapsedMs
+                    $phaseJson=''
+                    try {
+                        if($state.metrics -and $state.metrics.PSObject.Properties['PhaseElapsedMs']){$phaseJson=ConvertTo-Json -InputObject $state.metrics.PhaseElapsedMs -Compress}
+                    } catch {
+                        Write-RuntimeLog 'SCAN-PHASE-METRICS' ($_ | Out-String)
+                    }
+                    Write-ScanLog $script:ScanLogFile "BASIC DONE Profile=$profileName Online=$([int]$state.online) L2Seen=$([int]$state.seen) IPv6Neighbors=$ipv6Count TotalIPv4=$(@($state.results).Count) ElapsedMs=$([int]$state.elapsedMs) PhaseMs=$phaseJson"
                     $started=$false
                     if($gridScan.Rows.Count -gt 0 -and $script:ScanContext -and $durationSec -gt 0){
                         $started=Start-DiscoveryWorker @($script:ScanResults) $script:ScanContext.Gateway $script:ScanContext.LocalIP $profileName $durationSec
@@ -3063,6 +3147,7 @@ $btnScan.Add_Click({
     $settings=Get-ScanProfileSettings $selectedScanProfile ([int]$numScanTimeout.Value) $targets.Count
     $script:CurrentScanProfile=[string]$settings.Profile
     $script:CurrentScanStartedAt=Get-Date
+    $script:CurrentScanCoreElapsedMs=0
     $script:DiscoveryDurationSec=[int]$settings.DiscoveryDurationSec
     $scopeCidrs=if($routePlan){@($routePlan.Scopes|ForEach-Object {[string]$_.Cidr})}else{@($primaryCidr)}
     $routeQueryError=if($routePlan){[string]$routePlan.RouteQueryError}else{''}
@@ -3178,7 +3263,7 @@ $mcTarget=New-Object System.Windows.Forms.DataGridViewTextBoxColumn;$mcTarget.Na
 $mcInterval=New-Object System.Windows.Forms.DataGridViewComboBoxColumn;$mcInterval.Name='MonInterval';$mcInterval.HeaderText='GIÂY';$mcInterval.FillWeight=6;foreach($v in @('1','2','5','10','30')){[void]$mcInterval.Items.Add($v)};[void]$gridMonitor.Columns.Add($mcInterval)
 $mcAlert=New-Object System.Windows.Forms.DataGridViewCheckBoxColumn;$mcAlert.Name='MonAlert';$mcAlert.HeaderText='ALERT';$mcAlert.FillWeight=6;[void]$gridMonitor.Columns.Add($mcAlert)
 foreach($spec in @(
-    @('MonState','STATUS',9),@('MonCurrent','NOW',7),@('MonMin','MIN',6),@('MonAvg','AVG',6),@('MonMax','MAX',6),@('MonLoss','LOSS',7),@('MonUptime','UPTIME',9),@('MonDowntime','DOWNTIME',9),@('MonOutages','OUTAGES',7),@('MonChanged','LAST CHANGE',12)
+    @('MonState','STATUS',9),@('MonCurrent','NOW',7),@('MonMin','MIN ms',6),@('MonAvg','AVG ms',6),@('MonMax','MAX ms',6),@('MonSamples','OK/TOTAL',8),@('MonLoss','LOSS',7),@('MonUptime','UPTIME',9),@('MonDowntime','DOWNTIME',9),@('MonOutages','OUTAGES',7),@('MonLastSample','LAST SAMPLE',10),@('MonChanged','LAST CHANGE',12)
 )){
     $c=New-Object System.Windows.Forms.DataGridViewTextBoxColumn;$c.Name=$spec[0];$c.HeaderText=$spec[1];$c.ReadOnly=$true;$c.FillWeight=[float]$spec[2];[void]$gridMonitor.Columns.Add($c)
 }
@@ -3217,10 +3302,13 @@ function Update-MonitorGridRow([string]$target){
         $row.Cells['MonMin'].Value=if($stat -and $null -ne $stat.MinMs){"$([Math]::Round([double]$stat.MinMs,1))"}else{'--'}
         $avg=Get-MonitorAverageMs $stat;$row.Cells['MonAvg'].Value=if($null -ne $avg){"$avg"}else{'--'}
         $row.Cells['MonMax'].Value=if($stat -and $null -ne $stat.MaxMs){"$([Math]::Round([double]$stat.MaxMs,1))"}else{'--'}
+        $row.Cells['MonSamples'].Value=if($stat){"$([int]$stat.SuccessCount)/$([int]$stat.TotalCount)"}else{'0/0'}
+        $row.Cells['MonSamples'].ToolTipText=if($stat){"Success=$([int]$stat.SuccessCount); Fail=$([int]$stat.FailureCount); Total=$([int]$stat.TotalCount)"}else{''}
         $row.Cells['MonLoss'].Value=if($stat){"$(Get-MonitorLossPercent $stat)%"}else{'0.0%'}
         $row.Cells['MonUptime'].Value=if($stat){Format-MonitorDuration (Get-MonitorDisplayedUptime $stat)}else{'00:00:00'}
         $row.Cells['MonDowntime'].Value=if($stat){Format-MonitorDuration (Get-MonitorDisplayedDowntime $stat)}else{'00:00:00'}
         $row.Cells['MonOutages'].Value=if($stat){[string]$stat.OutageCount}else{'0'}
+        $row.Cells['MonLastSample'].Value=if($stat -and $stat.LastResultAt){([datetime]$stat.LastResultAt).ToString('HH:mm:ss')}else{'--'}
         $row.Cells['MonChanged'].Value=if($stat -and $stat.LastChange){([datetime]$stat.LastChange).ToString('HH:mm:ss')}else{'--'}
     } finally {$script:MonitoringGridUpdating=$priorUpdating}
 }
@@ -3233,19 +3321,20 @@ function Refresh-MonitorGrid {
 
 function Refresh-MonitorTimelineGrid {
     if(-not $gridMonitorTimeline){return}
-    $gridMonitorTimeline.SuspendLayout();try{$gridMonitorTimeline.Rows.Clear();foreach($ev in @($script:MonitoringEvents|Select-Object -Last 200|Sort-Object At -Descending)){$lat=if($null -ne $ev.LatencyMs -and [string]$ev.LatencyMs -ne ''){"$($ev.LatencyMs) ms"}else{'--'};$at='';try{$at=([datetime]$ev.At).ToString('yyyy-MM-dd HH:mm:ss')}catch{$at=[string]$ev.At};$i=$gridMonitorTimeline.Rows.Add($at,[string]$ev.Name,[string]$ev.Target,[string]$ev.From,[string]$ev.To,$lat,[string]$ev.Detail);$r=$gridMonitorTimeline.Rows[$i];if([string]$ev.To -eq 'OFFLINE'){$r.DefaultCellStyle.ForeColor=[Drawing.Color]::Firebrick}elseif([string]$ev.To -eq 'ONLINE'){$r.DefaultCellStyle.ForeColor=[Drawing.Color]::ForestGreen}}}finally{$gridMonitorTimeline.ResumeLayout()}
+    $gridMonitorTimeline.SuspendLayout();try{$gridMonitorTimeline.Rows.Clear();foreach($ev in @($script:MonitoringEvents|Sort-Object At -Descending)){$lat=if($null -ne $ev.LatencyMs -and [string]$ev.LatencyMs -ne ''){"$($ev.LatencyMs) ms"}else{'--'};$at='';try{$at=([datetime]$ev.At).ToString('yyyy-MM-dd HH:mm:ss')}catch{$at=[string]$ev.At};$i=$gridMonitorTimeline.Rows.Add($at,[string]$ev.Name,[string]$ev.Target,[string]$ev.From,[string]$ev.To,$lat,[string]$ev.Detail);$r=$gridMonitorTimeline.Rows[$i];if([string]$ev.To -eq 'OFFLINE'){$r.DefaultCellStyle.ForeColor=[Drawing.Color]::Firebrick}elseif([string]$ev.To -eq 'ONLINE'){$r.DefaultCellStyle.ForeColor=[Drawing.Color]::ForestGreen}}}finally{$gridMonitorTimeline.ResumeLayout()}
 }
 
 function Refresh-MonitorSummary {
     if(-not $lblMonitorSummary){return}
     $enabled=@($script:MonitoringConfig.Values|Where-Object{[bool]$_.Enabled});$online=0;$offline=0;$unknown=0
     foreach($cfg in $enabled){$st=$script:MonitoringStats[[string]$cfg.Target];if($st -and $st.State -eq 'ONLINE'){$online++}elseif($st -and $st.State -eq 'OFFLINE'){$offline++}else{$unknown++}}
-    $lblMonitorSummary.Text="Monitoring: Enabled $($enabled.Count) | Online $online | Offline $offline | Unknown $unknown | Timeline $($script:MonitoringEvents.Count)/$($script:MonitoringMaxEvents)"
+    $since=if($script:MonitoringSessionStartedAt){([datetime]$script:MonitoringSessionStartedAt).ToString('HH:mm:ss')}else{'--'}
+    $lblMonitorSummary.Text="Monitoring: Enabled $($enabled.Count) | Online $online | Offline $offline | Unknown $unknown | Stats since $since | Timeline $($script:MonitoringEvents.Count)/$($script:MonitoringMaxEvents)"
     if($offline -gt 0){$lblMonitorSummary.ForeColor=[Drawing.Color]::Firebrick}elseif($enabled.Count -gt 0){$lblMonitorSummary.ForeColor=[Drawing.Color]::ForestGreen}else{$lblMonitorSummary.ForeColor=[Drawing.Color]::DimGray}
 }
 
 function Reset-MonitorStats {
-    $new=@{};foreach($cfg in @($script:MonitoringConfig.Values)){$new[[string]$cfg.Target]=New-MonitorStat ([string]$cfg.Target) ([string]$cfg.Name)};$script:MonitoringStats=$new;Refresh-MonitorGrid
+    $new=@{};foreach($cfg in @($script:MonitoringConfig.Values)){$new[[string]$cfg.Target]=New-MonitorStat ([string]$cfg.Target) ([string]$cfg.Name)};$script:MonitoringStats=$new;$script:MonitoringSessionStartedAt=Get-Date;Refresh-MonitorGrid
 }
 
 function Invoke-MonitorScheduler {
@@ -3653,6 +3742,25 @@ $form.Add_Shown({
     if($loadedCount -gt 0){Save-Targets}
     Sync-MonitoringWithTargets -Save
     Refresh-MonitorTimelineGrid
+    if($script:DeepUiE2eMode){
+        try {
+            $testDevice=[pscustomobject]@{Status='Online';Type='This PC';Brand='';Model='';Name='Loopback';IP='127.0.0.1';MAC='';Latency='0 ms';OS='Windows';Confidence='High';NameSource='System DNS';ScanEvidence=@();DiscoveryEvidence=@()}
+            $ri=$gridScan.Rows.Add('Online','This PC','','','Loopback','System DNS','127.0.0.1','','0 ms',(Get-Date).ToString('HH:mm:ss'))
+            $testRow=$gridScan.Rows[$ri];$testRow.Tag=$testDevice;$gridScan.CurrentCell=$testRow.Cells['IP'];$tabs.SelectedTab=$tabScan
+            $script:DeepUiE2eLaunchState.Row=$testRow
+            $script:DeepUiE2eLaunchState.Timer=New-Object System.Windows.Forms.Timer;$script:DeepUiE2eLaunchState.Timer.Interval=250
+            $script:DeepUiE2eLaunchState.Timer.Add_Tick({
+                $script:DeepUiE2eLaunchState.Timer.Stop()
+                try {Show-DeviceDetails $script:DeepUiE2eLaunchState.Row $null}
+                catch {Write-DeepUiE2eResult -status 'FAIL' -stage 'open-details' -detail $_.Exception.Message -deepState $null}
+                finally {try{$script:DeepUiE2eLaunchState.Timer.Dispose()}catch{Write-RuntimeLog 'DEEP-UI-E2E-LAUNCH-CLEANUP' $_.Exception.Message};$script:DeepUiE2eLaunchState.Timer=$null;$script:DeepUiE2eLaunchState.Row=$null;if(-not $form.IsDisposed){$form.Close()}}
+            })
+            $script:DeepUiE2eLaunchState.Timer.Start()
+        } catch {
+            Write-DeepUiE2eResult -status 'FAIL' -stage 'seed-device' -detail $_.Exception.Message -deepState $null
+            $form.Close()
+        }
+    }
     Add-Log $pingLog "RF & Network Diagnostic Tool v$AppVersion Full QA / CI-E2E đã sẵn sàng. Tên gợi nhớ sửa trực tiếp trong bảng PING (double-click/F2)."
     Add-Log $rfLog 'Tab RF UDP: nhập local port -> Start UDP. Packet nhận được sẽ hiện TEXT/HEX và tự dò RSSI/SNR.'
 })
