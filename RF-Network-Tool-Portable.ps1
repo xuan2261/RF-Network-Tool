@@ -957,7 +957,8 @@ function Update-DeviceHistory($device,[bool]$incrementSeen=$false) {
     $h.LastSeen=$now
     if($incrementSeen){$h.SeenCount=[int]$h.SeenCount+1}
     $h.LastIP=$device.IP;$h.LastMAC=$device.MAC
-    $nameSource='';try{if($device.PSObject.Properties['NameSource']){$nameSource=([string]$device.NameSource).Trim()}}catch{}
+    $nameSource=''
+    if($device.PSObject.Properties['NameSource']){$nameSource=([string]$device.NameSource).Trim()}
     # Never let a historical fallback re-poison the identity record. Only current/user evidence may refresh the remembered name.
     if($device.Name -and $nameSource -and $nameSource -notlike 'History*'){$h.LastName=$device.Name;$h.LastNameSource=$nameSource}
     if($device.Brand){$h.LastBrand=$device.Brand}; if($device.Model){$h.LastModel=$device.Model}; if($device.Type){$h.LastType=$device.Type}
@@ -1727,7 +1728,8 @@ function Get-InitialDeviceName([string]$ip,[string]$resolvedName,[string]$gatewa
         $key=Get-DeviceKey $ip $cleanMac
         if($key -like 'MAC:*' -and $script:DeviceHistory.ContainsKey($key)){
             $h=$script:DeviceHistory[$key]
-            $source='';try{if($h.PSObject.Properties['LastNameSource']){$source=([string]$h.LastNameSource).Trim()}}catch{}
+            $source=''
+            if($h.PSObject.Properties['LastNameSource']){$source=([string]$h.LastNameSource).Trim()}
             # Legacy v1.5.1 history has no provenance and is intentionally not auto-applied.
             if($h.LastName -and $source -and $source -notlike 'History*'){
                 return [pscustomobject]@{Name=[string]$h.LastName;Source='History (MAC match)'}
@@ -3017,7 +3019,12 @@ $scanWorkerTimer.Add_Tick({
                     $durationSec=20
                     if($state.metrics -and $state.metrics.PSObject.Properties['DiscoveryDurationSec']){$durationSec=[int]$state.metrics.DiscoveryDurationSec}
                     $script:CurrentScanCoreElapsedMs=[int]$state.elapsedMs
-                    $phaseJson='';try{if($state.metrics -and $state.metrics.PSObject.Properties['PhaseElapsedMs']){$phaseJson=ConvertTo-Json -InputObject $state.metrics.PhaseElapsedMs -Compress}}catch{}
+                    $phaseJson=''
+                    try {
+                        if($state.metrics -and $state.metrics.PSObject.Properties['PhaseElapsedMs']){$phaseJson=ConvertTo-Json -InputObject $state.metrics.PhaseElapsedMs -Compress}
+                    } catch {
+                        Write-RuntimeLog 'SCAN-PHASE-METRICS' ($_ | Out-String)
+                    }
                     Write-ScanLog $script:ScanLogFile "BASIC DONE Profile=$profileName Online=$([int]$state.online) L2Seen=$([int]$state.seen) IPv6Neighbors=$ipv6Count TotalIPv4=$(@($state.results).Count) ElapsedMs=$([int]$state.elapsedMs) PhaseMs=$phaseJson"
                     $started=$false
                     if($gridScan.Rows.Count -gt 0 -and $script:ScanContext -and $durationSec -gt 0){
