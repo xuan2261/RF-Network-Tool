@@ -1,4 +1,4 @@
-# Pure route-aware IPv4 scope planner for RF-Network-Tool.
+﻿# Pure route-aware IPv4 scope planner for RF-Network-Tool.
 # This file is dot-sourced by the WinForms UI and can be tested independently on Windows PowerShell 5.1.
 
 function Convert-RftIPv4ToUInt32Strict([string]$Address) {
