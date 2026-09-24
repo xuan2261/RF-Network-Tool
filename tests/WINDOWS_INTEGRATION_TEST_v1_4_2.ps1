@@ -46,6 +46,8 @@ Assert-True ($mainText.Contains('$deepState=[pscustomobject]@') -and $mainText.C
 Assert-True ($mainText.Contains('RFT_DEEP_UI_E2E') -and $mainText.Contains("Write-DeepUiE2eResult -status 'PASS' -stage 'completed'") -and (Test-Path -LiteralPath $deepUiE2e)) 'Deep UI regression hook and bounded E2E harness present'
 $deepFailRc=Invoke-BoundedPs $deepUiE2e @('-FailureExitSelfTest') 10000 'Deep UI failure-exit self-test'
 Assert-True ($deepFailRc -eq 23) 'Deep UI E2E failure path propagates a non-zero exit code'
+$deepQuoteRc=Invoke-BoundedPs $deepUiE2e @('-LauncherArgumentSelfTest') 40000 'Deep UI launcher argument quoting self-test'
+Assert-True ($deepQuoteRc -eq 0) 'Deep UI E2E launcher argument quoting executes production diagnostic entrypoint'
 Assert-True ($mainText.Contains("@('MonSamples','OK/TOTAL',8)") -and $mainText.Contains("@('MonLastSample','LAST SAMPLE',10)") -and $mainText.Contains('MonitoringSessionStartedAt')) 'Monitoring exposes sample auditability and session horizon'
 Assert-True ($mainText.Contains('$script:MonitoringEvents|Sort-Object At -Descending') -and -not $mainText.Contains('$script:MonitoringEvents|Select-Object -Last 200')) 'Monitoring grid renders the full retained timeline'
 
