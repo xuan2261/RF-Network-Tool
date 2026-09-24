@@ -91,7 +91,7 @@ checks={
  'no_ordered_parameter_regression':all('[ordered]$' not in x.lower() for x in texts.values()),
  'no_uint64_hex_regression':'[uint64]0xffffffff' not in mt.lower(),
  'single_instance_lock':'Acquire-InstanceLock' in lt and 'Release-InstanceLock' in lt and 'FileShare]::None' in lt,
- 'launcher_diagnostic_failure_nonmodal':lt.count('if($Diagnostic){try{Write-Host')>=2 and lt.count('else{Show-Fatal')>=2,
+ 'launcher_diagnostic_failure_nonmodal':lt.count('if($Diagnostic){[Console]::Error.WriteLine(')>=2 and lt.count('else{Show-Fatal')>=2,
  'launcher_parses_all_workers':all(n in lt for n in ['RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1']),
  'session_scoped_ping_ipc':'PingIpcDir' in mt and 'RuntimeSessionId' in mt,
  'ping_async_worker':'SendPingAsync' in pt and 'Enqueue-PingRequest' in mt,
