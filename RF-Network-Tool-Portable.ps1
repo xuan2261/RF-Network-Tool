@@ -1359,23 +1359,23 @@ function Show-DeviceDetails($row,$adapterInfoObj) {
             try {
                 if(-not $deepE2eState.Clicked){
                     $deepE2eState.Clicked=$true;$deepE2eState.StartedAt=Get-Date
-                    Write-DeepUiE2eResult 'RUNNING' 'button-click' 'Invoking the real Phân tích sâu / Refresh button callback.' $deepState
+                    Write-DeepUiE2eResult -status 'RUNNING' -stage 'button-click' -detail 'Invoking the real Phân tích sâu / Refresh button callback.' -deepState $deepState
                     $btnDeep.PerformClick();return
                 }
                 if($deepState.LastPhase -and $deepState.LastPhase -notin @('Starting','')){$deepE2eState.ObservedProgress=$true}
                 if($deepState.Completed -and -not $deepState.Busy){
                     $restored=($btnDeep.Enabled -and $btnDeep.Text -eq 'Phân tích sâu / Refresh')
                     $passed=($deepState.Succeeded -and $deepE2eState.ObservedProgress -and $restored)
-                    if($passed){Write-DeepUiE2eResult 'PASS' 'completed' 'Deep UI callback observed worker progress, successful result, and restored controls.' $deepState}
-                    else{Write-DeepUiE2eResult 'FAIL' 'completed' ("Succeeded={0}; ObservedProgress={1}; Restored={2}" -f $deepState.Succeeded,$deepE2eState.ObservedProgress,$restored) $deepState}
+                    if($passed){Write-DeepUiE2eResult -status 'PASS' -stage 'completed' -detail 'Deep UI callback observed worker progress, successful result, and restored controls.' -deepState $deepState}
+                    else{Write-DeepUiE2eResult -status 'FAIL' -stage 'completed' -detail ("Succeeded={0}; ObservedProgress={1}; Restored={2}" -f $deepState.Succeeded,$deepE2eState.ObservedProgress,$restored) -deepState $deepState}
                     $deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close();return
                 }
                 if($deepE2eState.StartedAt -and (((Get-Date)-[datetime]$deepE2eState.StartedAt).TotalSeconds -gt 45)){
-                    Write-DeepUiE2eResult 'FAIL' 'timeout' ("Deep UI did not complete within 45s; button='{0}' busy={1}" -f $btnDeep.Text,$deepState.Busy) $deepState
+                    Write-DeepUiE2eResult -status 'FAIL' -stage 'timeout' -detail ("Deep UI did not complete within 45s; button='{0}' busy={1}" -f $btnDeep.Text,$deepState.Busy) -deepState $deepState
                     if($deepState.Busy){& $cleanupDeep};$deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close()
                 }
             } catch {
-                Write-DeepUiE2eResult 'FAIL' 'exception' $_.Exception.Message $deepState
+                Write-DeepUiE2eResult -status 'FAIL' -stage 'exception' -detail $_.Exception.Message -deepState $deepState
                 if($deepState.Busy){& $cleanupDeep};$deepE2eState.Done=$true;$deepE2eTimer.Stop();$f.Close()
             }
         })
@@ -3752,12 +3752,12 @@ $form.Add_Shown({
             $script:DeepUiE2eLaunchState.Timer.Add_Tick({
                 $script:DeepUiE2eLaunchState.Timer.Stop()
                 try {Show-DeviceDetails $script:DeepUiE2eLaunchState.Row $null}
-                catch {Write-DeepUiE2eResult 'FAIL' 'open-details' $_.Exception.Message $null}
+                catch {Write-DeepUiE2eResult -status 'FAIL' -stage 'open-details' -detail $_.Exception.Message -deepState $null}
                 finally {try{$script:DeepUiE2eLaunchState.Timer.Dispose()}catch{Write-RuntimeLog 'DEEP-UI-E2E-LAUNCH-CLEANUP' $_.Exception.Message};$script:DeepUiE2eLaunchState.Timer=$null;$script:DeepUiE2eLaunchState.Row=$null;if(-not $form.IsDisposed){$form.Close()}}
             })
             $script:DeepUiE2eLaunchState.Timer.Start()
         } catch {
-            Write-DeepUiE2eResult 'FAIL' 'seed-device' $_.Exception.Message $null
+            Write-DeepUiE2eResult -status 'FAIL' -stage 'seed-device' -detail $_.Exception.Message -deepState $null
             $form.Close()
         }
     }
