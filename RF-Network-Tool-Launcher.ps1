@@ -79,7 +79,8 @@ try {
     $LogFile = Join-Path $LogDir ("startup-$Stamp.log")
 } catch {
     $bootstrapMessage="RF Network Tool không thể chuẩn bị thư mục dữ liệu.`r`n`r`n$($_.Exception.Message)"
-    Show-Fatal $bootstrapMessage
+    if($Diagnostic){try{Write-Host $bootstrapMessage -ForegroundColor Red}catch{}}
+    else{Show-Fatal $bootstrapMessage}
     exit 1
 }
 
@@ -158,7 +159,8 @@ catch {
     if($err.InvocationInfo){Write-LaunchLog ('At: '+$err.InvocationInfo.PositionMessage.Replace("`r",' ').Replace("`n",' '))}
     Write-LaunchLog ($err | Out-String)
     $msg="RF Network Tool không thể khởi động.`r`n`r`n$($err.Exception.Message)`r`n`r`nChi tiết đã lưu tại:`r`n$LogFile"
-    Show-Fatal $msg
+    if($Diagnostic){try{Write-Host $msg -ForegroundColor Red}catch{}}
+    else{Show-Fatal $msg}
     exit 1
 }
 finally {
