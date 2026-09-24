@@ -302,8 +302,10 @@ function Get-MacInfo([string]$Mac) {
 }
 
 try {
-    Assert-ParentAlive;Write-Heartbeat 'Starting'
+    # Emit startup evidence before parent validation so the UI can distinguish process start from later validation failure.
+    Write-Heartbeat 'Starting';Assert-ParentAlive
     $config=[IO.File]::ReadAllText($ConfigFile) | ConvertFrom-Json -ErrorAction Stop
+    Write-Heartbeat 'Config-Loaded'
     if([string]$config.sessionId -ne $SessionId -or [string]$config.runId -ne $RunId){throw 'Task config session/run mismatch.'}
 
     if($Mode -in @('OUI_UPDATE','OUI_BUILD_CACHE')) {
@@ -334,11 +336,11 @@ try {
         Write-Heartbeat 'Deep-UPnP';$upnp=if($ssdp.Location){Get-Upnp $ssdp.Location $ip 900}else{$null}
         $nbt=if($open.Port -contains 445){Write-Heartbeat 'Deep-NetBIOS';Get-Netbios $ip}else{''}
 
-        $brand=[string]$d.Brand;$model=[string]$d.Model;$type=[string]$d.Type;$name=[string]$d.Name;$os=[string]$d.OS
+        $brand=[string]$d.Brand;$model=[string]$d.Model;$type=[string]$d.Type;$name=[string]$d.Name;$nameSource=[string]$d.NameSource;$os=[string]$d.OS
         if($upnp){
             if($upnp.Manufacturer){$brand=$upnp.Manufacturer}
             if($upnp.ModelName){$model=$upnp.ModelName}elseif($upnp.ModelNumber){$model=$upnp.ModelNumber}
-            if($upnp.FriendlyName){$name=[string]$upnp.FriendlyName}
+            if($upnp.FriendlyName){$name=[string]$upnp.FriendlyName;$nameSource='UPnP friendlyName'}
             $dt=([string]$upnp.DeviceType).ToLowerInvariant()
             if($dt -match 'printer'){$type='Printer'}elseif($dt -match 'camera|video'){$type='IP Camera / Media'}elseif($dt -match 'router|internetgateway'){$type='Router / Gateway'}
         }
@@ -350,7 +352,7 @@ try {
             if($sig -match 'dahua'){if($brand -eq 'Unknown' -or -not $brand){$brand='Dahua Technology'};if($type -eq 'Unknown'){$type='IP Camera / NVR'}}
             if($sig -match 'hikvision'){if($brand -eq 'Unknown' -or -not $brand){$brand='Hikvision'};if($type -eq 'Unknown'){$type='IP Camera / NVR'}}
         }
-        $deep=[ordered]@{Ping=$ping;PortChecks=$checks;Ports=$open;PortText=$portText;HTTP=$http;SSDP=$ssdp;UPnP=$upnp;NetBIOS=$nbt;MacInfo=(Get-MacInfo ([string]$d.MAC));NeighborState=(Get-Neighbor $ip $idx);Brand=$brand;Model=$model;Type=$type;Name=$name;OS=$os}
+        $deep=[ordered]@{Ping=$ping;PortChecks=$checks;Ports=$open;PortText=$portText;HTTP=$http;SSDP=$ssdp;UPnP=$upnp;NetBIOS=$nbt;MacInfo=(Get-MacInfo ([string]$d.MAC));NeighborState=(Get-Neighbor $ip $idx);Brand=$brand;Model=$model;Type=$type;Name=$name;NameSource=$nameSource;OS=$os}
         Write-JsonAtomic $ResultFile ([ordered]@{schemaVersion=1;sessionId=$SessionId;runId=$RunId;mode=$Mode;success=$true;completedAt=(Get-Date).ToString('o');deep=$deep}) 12
     }
 }
