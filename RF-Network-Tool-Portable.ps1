@@ -48,6 +48,7 @@ try { if (-not (Test-Path -LiteralPath $RuntimeLogDir)) { [void](New-Item -ItemT
 $RuntimeLogFile = Join-Path $RuntimeLogDir ("runtime-{0}.log" -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
 $script:DeepUiE2eMode = ([string]$env:RFT_DEEP_UI_E2E -eq '1')
 $script:DeepUiE2eResultFile = ([string]$env:RFT_DEEP_UI_E2E_RESULT).Trim()
+$script:DeepUiE2eLaunchState = [pscustomobject]@{Timer=$null;Row=$null}
 
 $script:TargetRows = @{}
 $script:TargetSchemaVersion = 2
@@ -3746,14 +3747,15 @@ $form.Add_Shown({
             $testDevice=[pscustomobject]@{Status='Online';Type='This PC';Brand='';Model='';Name='Loopback';IP='127.0.0.1';MAC='';Latency='0 ms';OS='Windows';Confidence='High';NameSource='System DNS';ScanEvidence=@();DiscoveryEvidence=@()}
             $ri=$gridScan.Rows.Add('Online','This PC','','','Loopback','System DNS','127.0.0.1','','0 ms',(Get-Date).ToString('HH:mm:ss'))
             $testRow=$gridScan.Rows[$ri];$testRow.Tag=$testDevice;$gridScan.CurrentCell=$testRow.Cells['IP'];$tabs.SelectedTab=$tabScan
-            $launchDeepE2eTimer=New-Object System.Windows.Forms.Timer;$launchDeepE2eTimer.Interval=250
-            $launchDeepE2eTimer.Add_Tick({
-                $launchDeepE2eTimer.Stop()
-                try {Show-DeviceDetails $testRow $null}
+            $script:DeepUiE2eLaunchState.Row=$testRow
+            $script:DeepUiE2eLaunchState.Timer=New-Object System.Windows.Forms.Timer;$script:DeepUiE2eLaunchState.Timer.Interval=250
+            $script:DeepUiE2eLaunchState.Timer.Add_Tick({
+                $script:DeepUiE2eLaunchState.Timer.Stop()
+                try {Show-DeviceDetails $script:DeepUiE2eLaunchState.Row $null}
                 catch {Write-DeepUiE2eResult 'FAIL' 'open-details' $_.Exception.Message $null}
-                finally {try{$launchDeepE2eTimer.Dispose()}catch{Write-RuntimeLog 'DEEP-UI-E2E-LAUNCH-CLEANUP' $_.Exception.Message};if(-not $form.IsDisposed){$form.Close()}}
+                finally {try{$script:DeepUiE2eLaunchState.Timer.Dispose()}catch{Write-RuntimeLog 'DEEP-UI-E2E-LAUNCH-CLEANUP' $_.Exception.Message};$script:DeepUiE2eLaunchState.Timer=$null;$script:DeepUiE2eLaunchState.Row=$null;if(-not $form.IsDisposed){$form.Close()}}
             })
-            $launchDeepE2eTimer.Start()
+            $script:DeepUiE2eLaunchState.Timer.Start()
         } catch {
             Write-DeepUiE2eResult 'FAIL' 'seed-device' $_.Exception.Message $null
             $form.Close()
