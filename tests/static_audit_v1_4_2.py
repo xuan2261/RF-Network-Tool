@@ -81,6 +81,7 @@ checks={
  'task_useragents_dynamic':tt.count('$UserAgent')>=3 and 'RF-Network-Tool/1.4.2' not in tt,
  'discovery_useragent_dynamic':'$UserAgent' in dt and 'RF-Network-Tool/1.4.2' not in dt,
  'runtime_scripts_present':all(p.exists() for p in paths),
+ 'route_planner_utf8_bom':(root/'RF-Network-Tool-RoutePlanner.ps1').read_bytes().startswith(b'\xef\xbb\xbf'),
  'all_delimiters_balanced':all(balanced(x) for x in texts.values()),
  'no_duplicate_functions':all(not dups(x) for x in texts.values()),
  'no_definition_only_functions':not def_only('\n'.join(texts.values())),
