@@ -3083,7 +3083,7 @@ $btnScan.Add_Click({
         $scanWorkerTimer.Start()
     } catch {
         $script:ScanActive=$false
-        $btnScan.Enabled=$true;$btnStopScan.Enabled=$false;$cmbScanAdapter.Enabled=$true;$txtCidr.Enabled=$true;$cmbScanProfile.Enabled=$true
+        $btnScan.Enabled=$true;$btnStopScan.Enabled=$false;$cmbScanAdapter.Enabled=$true;$txtCidr.Enabled=$true;$cmbScanProfile.Enabled=$true;$chkRouteAware.Enabled=$true
         $lblScanStatus.Text="Không thể khởi động scan worker: $($_.Exception.Message)"
         $lblScanStatus.ForeColor=[Drawing.Color]::Firebrick
         Write-RuntimeLog 'SCAN-WORKER-START' ($_ | Out-String)
