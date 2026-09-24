@@ -74,6 +74,9 @@ jobs:
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if(-not $summary){throw 'Physical qualification summary.json was not produced.'}
           $data=[IO.File]::ReadAllText($summary.FullName) | ConvertFrom-Json
+          $deepEvidencePath=Join-Path $PWD 'ci-artifacts\deep-ui-e2e.json'
+          if(-not (Test-Path -LiteralPath $deepEvidencePath)){throw 'deep-ui-e2e.json was not produced.'}
+          $deepEvidence=[IO.File]::ReadAllText($deepEvidencePath) | ConvertFrom-Json
           $gui=$data.results | Where-Object {$_.name -eq 'interactive_gui_e2e'} | Select-Object -First 1
           $deepUi=$data.results | Where-Object {$_.name -eq 'deep_ui_e2e'} | Select-Object -First 1
           $routePlanner=$data.results | Where-Object {$_.name -eq 'route_scope_planner'} | Select-Object -First 1
@@ -89,6 +92,8 @@ jobs:
             mode=[string]$data.mode
             interactiveGui=if($gui){[string]$gui.status}else{'MISSING'}
             deepUi=if($deepUi){[string]$deepUi.status}else{'MISSING'}
+            deepUiEvidenceStatus=[string]$deepEvidence.status
+            deepUiEvidenceStage=[string]$deepEvidence.stage
             routeScopePlanner=if($routePlanner){[string]$routePlanner.status}else{'MISSING'}
             routeScopeLive=if($routeLive){[string]$routeLive.status}else{'MISSING'}
             realLanFastBalanced=if($lan){[string]$lan.status}else{'MISSING'}
@@ -112,6 +117,9 @@ jobs:
           if([string]$data.mode -ne 'Full'){throw "Expected Full mode, got $($data.mode)"}
           if(-not $gui -or [string]$gui.status -ne 'PASS'){throw 'interactive_gui_e2e must PASS.'}
           if(-not $deepUi -or [string]$deepUi.status -ne 'PASS'){throw 'deep_ui_e2e must PASS; the Device Details deep-analysis button path is release-critical.'}
+          if([string]$deepEvidence.status -ne 'PASS' -or [string]$deepEvidence.stage -ne 'completed'){throw "deep-ui-e2e.json must independently report PASS/completed; got status=$($deepEvidence.status) stage=$($deepEvidence.stage)."}
+          if(-not [bool]$deepEvidence.workerCompleted -or -not [bool]$deepEvidence.workerSucceeded){throw 'deep-ui-e2e.json must prove workerCompleted=true and workerSucceeded=true.'}
+          if([string]$deepEvidence.lastPhase -ne 'Completed'){throw "deep-ui-e2e.json unexpected lastPhase=$($deepEvidence.lastPhase)."}
           if(-not $routePlanner -or [string]$routePlanner.status -ne 'PASS'){throw 'route_scope_planner must PASS.'}
           if(-not $routeLive -or [string]$routeLive.status -ne 'PASS'){throw 'route_scope_live must PASS; SKIP is not release qualification.'}
           if(-not $lan -or [string]$lan.status -ne 'PASS'){throw 'real_lan_fast_balanced must PASS; SKIP is not release qualification.'}
