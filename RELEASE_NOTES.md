@@ -1,28 +1,62 @@
-# RF & Network Diagnostic Tool v1.5.1 — Route-Aware Private Multi-Subnet Candidate
+# RF & Network Diagnostic Tool v1.5.2 — Identity, Monitoring & Deep-Analysis Hardening
 
 ## Scope
 
-v1.5.1 builds on the physically qualified and merged v1.5.0 IPv6/NDP foundation and adds an explicit, bounded route-aware IPv4 scope planner.
+v1.5.2 is a correctness and operability release built on v1.5.1 route-aware scanning.
 
-- Existing manual CIDR scan behavior remains unchanged when Route-aware is OFF.
-- Route-aware is opt-in and preserves the user-entered primary CIDR.
-- Automatic route discovery reads Windows `Get-NetRoute -AddressFamily IPv4 -InterfaceIndex <selected>` only.
-- Only RFC1918 destination ranges are eligible for automatic expansion.
-- Default/public/wrong-interface/host-only/invalid routes are rejected.
-- Automatic routes must be /24 through /30, so each added scope has at most 254 hosts.
-- At most 4 automatic scopes are accepted and total unique targets are capped at 1024.
-- If any automatic scope is found, the GUI shows the additional CIDRs and total target count and requires an explicit Yes/No confirmation before active scanning begins.
-- Overlapping targets are deduplicated before the existing ScanWorker receives them.
-- Route-table read failure is non-fatal: the scan falls back to the primary CIDR only.
-- No route or IP mutation cmdlets are used.
-- The v1.5.0 passive IPv6/NDP snapshot remains unchanged.
+- Device-history naming is now MAC-bound and provenance-gated instead of reusing a historical name by IP alone.
+- Historical fallback names are prevented from being written back into a different device identity.
+- Deep Analysis / Refresh now uses shared mutable WinForms callback state, startup heartbeat tracking, and a bounded fail-closed watchdog.
+- Deep analysis preserves name provenance when UPnP supplies a friendly name.
+- Monitoring exposes OK/TOTAL samples, last-sample time, session start, and explicit millisecond units.
+- Monitoring renders the full retained timeline rather than silently truncating display to 200 rows.
+- Network scanning records per-phase timings and distinguishes core scan time from end-to-end discovery time.
+- The Windows 10 physical qualification now includes a release-critical deep_ui_e2e gate that opens Device Details and invokes the real Phân tích sâu / Refresh button path.
 
-## Architecture
+## Correctness fixes
 
-The route planner is isolated in `RF-Network-Tool-RoutePlanner.ps1` and is dot-sourced by the WinForms UI. The ScanWorker engine and its ICMP/ARP/neighbor/NDP execution path remain unchanged; the planner only prepares a bounded `Targets[]` set.
+### Device identity / history
 
-## Verification boundary
+v1.5.1 could reuse a historical hostname when a different MAC later received the same IPv4 address. v1.5.2 removes IP-only history autofill when a MAC is known, requires provenance-bearing exact-MAC history, and prevents History-derived names from re-poisoning the identity store.
 
-Hosted static/model/security tests, deterministic route fixtures on Windows PowerShell 5.1, Windows 2022/2025 runtime integration, chaos/recovery, performance, GUI accessibility behavior, cleanliness, package/SBOM integrity, reproducibility and attestations must pass on the exact PR head.
+### Deep Analysis / Refresh
 
-Because v1.5.1 changes the target-selection scope on the GUI path, a fresh Windows 10 FULL physical qualification on the exact final head is required before merge. Route-aware should be exercised on a private routed test topology when available; the normal exact-head GUI/LAN/cleanliness gates remain mandatory.
+The Device Details dialog previously used multiple local variables across separate WinForms callback scriptblocks. v1.5.2 consolidates mutable worker lifecycle state, records heartbeat phase/progress, and aborts boundedly if startup never becomes observable.
+
+### Monitoring
+
+The dashboard now makes the statistical horizon auditable with OK/TOTAL, LAST SAMPLE, and Stats since. MIN/AVG/MAX headers explicitly use milliseconds. The retained timeline and displayed timeline now have the same upper bound.
+
+## Verification evidence
+
+Exact runtime head before merge:
+`bda75e02be48ba55806c7a2c161cfcf8680508df`
+
+Windows 10 physical qualification:
+- workflow run `36024657880`
+- interactive_gui_e2e: PASS
+- deep_ui_e2e: PASS
+- deep-ui-e2e.json: PASS / completed
+- workerCompleted: true
+- workerSucceeded: true
+- lastPhase: Completed
+- route_scope_planner: PASS
+- route_scope_live: PASS
+- real_lan_fast_balanced: PASS
+- machine cleanliness baseline/post: PASS
+- aggregate: 17 PASS / 0 FAIL / 0 SKIP
+- physical evidence artifact SHA-256: `352d9e577f48a55addb6a23119e7118b36a8e4b8bab34437612dbc8fa3c5cd3d`
+
+Post-merge main commit:
+`ea2f6c8cef08afcc495bdcc9bd4c8b83eb8908b5`
+
+Post-merge hosted CI:
+- workflow run `36026333412`: SUCCESS
+- static/model: PASS
+- Windows PowerShell 5.1 integration on Windows Server 2022: PASS
+- Windows PowerShell 5.1 integration on Windows Server 2025: PASS
+- reproducible release package: PASS
+
+## Release boundary
+
+This release-finalization change is metadata/documentation only. Runtime code is unchanged from the physically qualified and post-merge CI-verified v1.5.2 implementation.
