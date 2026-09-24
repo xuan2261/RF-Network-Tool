@@ -57,6 +57,7 @@ checks={
  'real_lan_profiles':"@('FAST','BALANCED')" in lan and 'DEEP' not in lan,
  'real_lan_identity':all(x in lan for x in ['no duplicate result IPs','local IPv4 discovered exactly once','runId matches']),
  'ci_msaa_tab_selftest':'Tab accessibility MSAA fallback self-test' in ci and 'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1 -AccessibilitySelfTest' in ci,
+ 'windows_integration_bounded_children':all(x in integration for x in ['function Invoke-BoundedPs','WaitForExit($timeoutMs)','Scan worker exit 0','Discovery worker exit 0','OUI task worker exit 0','DEEP task worker exit 0']),
  'ci_harness_smoke':'Real-machine qualification harness SAFE smoke' in ci and 'RF-Network-Tool-RealMachineQualification.ps1 -Mode Safe -NoZip' in ci,
  'ci_harness_polluted_modulepath_fixture':all(x in ci for x in ["PowerShell\\7\\Modules","$env:PSModulePath = $ps7Modules + ';' + $env:PSModulePath"]),
  'ci_harness_stress_twice':all(x in ci for x in ['SAFE harness stress pass 1/2','SAFE harness stress pass 2/2']),
