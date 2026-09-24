@@ -87,6 +87,7 @@ $script:DeviceHistory = @{}
 $script:ScanHistory = @()
 $script:CurrentScanProfile = 'BALANCED'
 $script:CurrentScanStartedAt = $null
+$script:CurrentScanCoreElapsedMs = 0
 $script:MainForm = $null
 $script:DiscoverySnapshotReady = $false
 $script:MdnsNameCache = @{}
@@ -2934,7 +2935,10 @@ $discoveryTimer.Add_Tick({
         } else {
             [void](Apply-DiscoveryCacheToGrid)
             if($script:DiscoveryStartedAt){
-                $lblScanStatus.Text="Hoàn tất $($script:CurrentScanProfile) + nhận dạng tên nền | cập nhật $($script:DiscoveryAppliedCount) tên"
+                $totalSec=if($script:CurrentScanStartedAt){[Math]::Round(((Get-Date)-[datetime]$script:CurrentScanStartedAt).TotalSeconds,1)}else{0}
+                $coreSec=[Math]::Round(([double]$script:CurrentScanCoreElapsedMs/1000.0),1)
+                $lblScanStatus.Text="Hoàn tất $($script:CurrentScanProfile) + nhận dạng tên nền | cập nhật $($script:DiscoveryAppliedCount) tên | Core ${coreSec}s | Total ${totalSec}s"
+                $lblScanSummary.Text="$($script:CurrentScanProfile) | IPv4 $($script:ScanResults.Count) | Core ${coreSec}s | Total ${totalSec}s"
                 $lblScanStatus.ForeColor=[Drawing.Color]::ForestGreen
             }
             $btnStopScan.Enabled=$false
@@ -2989,7 +2993,7 @@ $scanWorkerTimer.Add_Tick({
             $lblScanStatus.Text="$phaseLabel | $([int]$state.online) Online | $([int]$state.seen) L2 Seen | NDP6 $ipv6Count | $(@($state.results).Count) thiết bị IPv4"
             $elapsedText=if($state.PSObject.Properties['elapsedMs']){"$([Math]::Round(([int]$state.elapsedMs)/1000.0,1))s"}else{'-'}
             $profileText=if($state.PSObject.Properties['profile']){[string]$state.profile}else{$script:CurrentScanProfile}
-            $lblScanSummary.Text="$profileText | Online $([int]$state.online) | L2 $([int]$state.seen) | NDP6 $ipv6Count | IPv4 $(@($state.results).Count) | $elapsedText"
+            $lblScanSummary.Text="$profileText | Online $([int]$state.online) | L2 $([int]$state.seen) | NDP6 $ipv6Count | IPv4 $(@($state.results).Count) | Core $elapsedText"
 
             if([bool]$state.complete){
                 $scanWorkerTimer.Stop()
@@ -3012,7 +3016,9 @@ $scanWorkerTimer.Add_Tick({
                     $profileName=if($state.PSObject.Properties['profile']){[string]$state.profile}else{$script:CurrentScanProfile}
                     $durationSec=20
                     if($state.metrics -and $state.metrics.PSObject.Properties['DiscoveryDurationSec']){$durationSec=[int]$state.metrics.DiscoveryDurationSec}
-                    Write-ScanLog $script:ScanLogFile "BASIC DONE Profile=$profileName Online=$([int]$state.online) L2Seen=$([int]$state.seen) IPv6Neighbors=$ipv6Count TotalIPv4=$(@($state.results).Count) ElapsedMs=$([int]$state.elapsedMs)"
+                    $script:CurrentScanCoreElapsedMs=[int]$state.elapsedMs
+                    $phaseJson='';try{if($state.metrics -and $state.metrics.PSObject.Properties['PhaseElapsedMs']){$phaseJson=ConvertTo-Json -InputObject $state.metrics.PhaseElapsedMs -Compress}}catch{}
+                    Write-ScanLog $script:ScanLogFile "BASIC DONE Profile=$profileName Online=$([int]$state.online) L2Seen=$([int]$state.seen) IPv6Neighbors=$ipv6Count TotalIPv4=$(@($state.results).Count) ElapsedMs=$([int]$state.elapsedMs) PhaseMs=$phaseJson"
                     $started=$false
                     if($gridScan.Rows.Count -gt 0 -and $script:ScanContext -and $durationSec -gt 0){
                         $started=Start-DiscoveryWorker @($script:ScanResults) $script:ScanContext.Gateway $script:ScanContext.LocalIP $profileName $durationSec
@@ -3080,6 +3086,7 @@ $btnScan.Add_Click({
     $settings=Get-ScanProfileSettings $selectedScanProfile ([int]$numScanTimeout.Value) $targets.Count
     $script:CurrentScanProfile=[string]$settings.Profile
     $script:CurrentScanStartedAt=Get-Date
+    $script:CurrentScanCoreElapsedMs=0
     $script:DiscoveryDurationSec=[int]$settings.DiscoveryDurationSec
     $scopeCidrs=if($routePlan){@($routePlan.Scopes|ForEach-Object {[string]$_.Cidr})}else{@($primaryCidr)}
     $routeQueryError=if($routePlan){[string]$routePlan.RouteQueryError}else{''}
