@@ -40,6 +40,10 @@ foreach($spec in @(@('Main',$main),@('Launcher',$launcher),@('DiscoveryWorker',$
 $mainText=[IO.File]::ReadAllText($main)
 Assert-True ($mainText.Contains('function Repair-ScanGridIndex') -and $mainText.Contains('function Finalize-PingRequest')) 'Runtime integrity helpers present'
 Assert-True ($mainText.Contains("'PENDING'") -and $mainText.Contains("'WAITING'") -and $mainText.Contains("'ENGINE ERROR'")) 'Monitoring engine-state UI markers present'
+Assert-True ($mainText.Contains("History (MAC match)") -and $mainText.Contains('LastNameSource') -and -not $mainText.Contains("if($h.LastIP -eq $ip -and $h.LastName)")) 'History naming is MAC-bound and provenance-gated'
+Assert-True ($mainText.Contains('$deepState=[pscustomobject]@') -and $mainText.Contains('StartupTimeoutSec=12') -and $mainText.Contains('Deep worker không phát heartbeat')) 'Deep UI worker uses shared state and startup watchdog'
+Assert-True ($mainText.Contains("@('MonSamples','OK/TOTAL',8)") -and $mainText.Contains("@('MonLastSample','LAST SAMPLE',10)") -and $mainText.Contains('MonitoringSessionStartedAt')) 'Monitoring exposes sample auditability and session horizon'
+Assert-True ($mainText.Contains('$script:MonitoringEvents|Sort-Object At -Descending') -and -not $mainText.Contains('$script:MonitoringEvents|Select-Object -Last 200')) 'Monitoring grid renders the full retained timeline'
 
 # Launcher diagnostic: exercises the real launcher, STA, WinForms load, parser sweep and data-dir bootstrap.
 $psExe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -58,7 +62,7 @@ try{
     $scanRc=Invoke-BoundedPs $scanWorker @('-ConfigFile',('"'+$config+'"'),'-StateFile',('"'+$state+'"'),'-CancelFile',('"'+$cancel+'"'),'-LogFile',('"'+$log+'"')) 20000 ("Scan worker "+$scanMode)
     Assert-True ($scanRc -eq 0) "Scan worker exit 0 $scanMode"
     Assert-True (Test-Path $state) "Scan state $scanMode"
-    if(Test-Path $state){$s=[IO.File]::ReadAllText($state)|ConvertFrom-Json;Assert-True ([int]$s.schemaVersion -eq 3) "State schema v3 $scanMode";Assert-True ([string]$s.runId -eq $runId) "State runId $scanMode";Assert-True ([string]$s.profile -eq $scanMode) "State profile $scanMode";Assert-True ([bool]$s.complete) "Complete $scanMode";Assert-True (-not [string]$s.error) "No error $scanMode";Assert-True (@($s.results|Where-Object {$_.IP -eq '127.0.0.1'}).Count -eq 1) "Loopback discovered $scanMode"}
+    if(Test-Path $state){$s=[IO.File]::ReadAllText($state)|ConvertFrom-Json;Assert-True ([int]$s.schemaVersion -eq 3) "State schema v3 $scanMode";Assert-True ([string]$s.runId -eq $runId) "State runId $scanMode";Assert-True ([string]$s.profile -eq $scanMode) "State profile $scanMode";Assert-True ([bool]$s.complete) "Complete $scanMode";Assert-True (-not [string]$s.error) "No error $scanMode";Assert-True (@($s.results|Where-Object {$_.IP -eq '127.0.0.1'}).Count -eq 1) "Loopback discovered $scanMode";Assert-True ($s.metrics.PSObject.Properties['PhaseElapsedMs'] -and $s.metrics.PhaseElapsedMs.PSObject.Properties['icmp-fast'] -and $s.metrics.PhaseElapsedMs.PSObject.Properties['arp-active']) "Phase timings present $scanMode"}
   }
 
   # Discovery worker: profile/run identity and cache schema.
