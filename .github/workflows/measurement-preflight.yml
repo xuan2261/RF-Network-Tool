@@ -1,0 +1,69 @@
+name: Measurement hardening preflight
+on:
+  push:
+    branches: [work/v1.5.3-measurement-preflight]
+permissions:
+  contents: read
+concurrency:
+  group: rft-measurement-preflight
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Normalize checkout and prepare guarded patch
+        shell: powershell
+        run: |
+          git config core.autocrlf false
+          git checkout-index --all --force
+          python .rft-preflight/prepare.py prepare
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Reproduce two defects in original production functions
+        shell: powershell
+        run: |
+          & .\.rft-preflight\baseline-test.ps1 -Root $PWD.Path -BaselineRed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Apply hash-guarded candidate
+        shell: powershell
+        run: |
+          python .rft-preflight/prepare.py apply
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Native production-function and real-control regression tests
+        shell: powershell
+        run: .\tests\WINDOWS_MEASUREMENT_TEST_v1_5_3.ps1
+      - name: Windows PowerShell integration including real worker terminal paths
+        shell: powershell
+        run: .\tests\WINDOWS_INTEGRATION_TEST_v1_4_2.ps1
+      - name: Existing static contracts
+        shell: powershell
+        run: |
+          python tests/run_all_static_v1_4_2.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Pinned analyzer and unchanged lint budget
+        shell: powershell
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+          .\tests\WINDOWS_LINT_GATE_v1_4_2.ps1
+      - name: Store only verified content blobs without changing branches or releases
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python .rft-preflight/prepare.py publish
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: measurement-preflight-evidence
+          path: |
+            ci-artifacts/**
+            logs/**
+          if-no-files-found: warn
