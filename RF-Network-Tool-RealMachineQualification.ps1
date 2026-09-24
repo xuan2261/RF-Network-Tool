@@ -374,7 +374,8 @@ try{
         if($Mode -in @('Gui','Full')){
             Invoke-Step 'interactive_preflight' (Join-Path $tests 'WINDOWS_INTERACTIVE_PREFLIGHT_v1_4_2.ps1') '' 60
             Invoke-Step 'interactive_gui_e2e' (Join-Path $tests 'WINDOWS_LAUNCHER_E2E_v1_4_2.ps1') '-TimeoutSec 30' 120
-        }else{Add-Result 'interactive_gui_e2e' 'SKIP' 'SAFE mode'}
+            Invoke-Step 'deep_ui_e2e' (Join-Path $tests 'WINDOWS_DEEP_UI_E2E_v1_5_2.ps1') '-TimeoutSec 70' 100
+        }else{Add-Result 'interactive_gui_e2e' 'SKIP' 'SAFE mode';Add-Result 'deep_ui_e2e' 'SKIP' 'SAFE mode'}
         if($Mode -eq 'Full'){
             $routeLiveArgs='';if($InterfaceIndex -gt 0){$routeLiveArgs="-InterfaceIndex $InterfaceIndex"}
             Invoke-Step 'route_scope_live' (Join-Path $tests 'WINDOWS_ROUTE_SCOPE_LIVE_TEST_v1_5_1.ps1') $routeLiveArgs 60 @(3)
