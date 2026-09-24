@@ -168,7 +168,7 @@ function Invoke-Captured([string]$exe,[string]$argumentString,[int]$timeoutMs=20
   $psi=New-Object Diagnostics.ProcessStartInfo;$psi.FileName=$exe;$psi.Arguments=$argumentString;$psi.UseShellExecute=$false;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true;$psi.CreateNoWindow=$true
   $p=New-Object Diagnostics.Process;$p.StartInfo=$psi;[void]$p.Start();if(-not $p.WaitForExit($timeoutMs)){try{$p.Kill()}catch{};throw "Process timeout: $exe $argumentString"};$o=$p.StandardOutput.ReadToEnd();$e=$p.StandardError.ReadToEnd();$rc=$p.ExitCode;$p.Dispose();return [pscustomobject]@{ExitCode=$rc;Out=$o;Err=$e}
 }
-$runtime=@('START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','README.txt','VERSION')
+$runtime=@('START-RF-NETWORK-TOOL.vbs','RUN-PORTABLE.cmd','RUN-DIAGNOSTIC.cmd','RF-Network-Tool-Launcher.ps1','RF-Network-Tool-Portable.ps1','RF-Network-Tool-ScanWorker.ps1','RF-Network-Tool-DiscoveryWorker.ps1','RF-Network-Tool-PingWorker.ps1','RF-Network-Tool-TaskWorker.ps1','RF-Network-Tool-RoutePlanner.ps1','README.txt','VERSION')
 $sandbox=Join-Path $env:TEMP ('RFT-versioned-e2e-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $sandbox -Force|Out-Null
 foreach($name in $runtime){Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination (Join-Path $sandbox $name) -Force}
 $psExe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
