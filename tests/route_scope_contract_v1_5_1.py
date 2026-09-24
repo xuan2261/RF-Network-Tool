@@ -12,6 +12,7 @@ live_path=root/'tests/WINDOWS_ROUTE_SCOPE_LIVE_TEST_v1_5_1.ps1'
 live=live_path.read_text(encoding='utf-8-sig') if live_path.is_file() else ''
 
 checks={
+    'route_planner_utf8_bom': planner_path.is_file() and planner_path.read_bytes().startswith(b'\xef\xbb\xbf'),
     'route_planner_exists': planner_path.is_file(),
     'route_query_interface_scoped':
         'Get-NetRoute -AddressFamily IPv4 -InterfaceIndex $InterfaceIndex' in planner,
