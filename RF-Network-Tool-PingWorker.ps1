@@ -62,24 +62,36 @@ function Invoke-PingBatch($Request) {
                 $completed++
             }
         }
-        foreach($j in $jobs.ToArray()){
-            try {
-                $waitMs=$timeout+1500
-                if(-not $j.Task.Wait($waitMs)){throw "Timeout after ${timeout} ms"}
-                if($j.Task.IsFaulted){throw $j.Task.Exception.GetBaseException()}
-                $reply=$j.Task.Result
-                if($reply.Status -eq [Net.NetworkInformation.IPStatus]::Success){
-                    $ttl=if($reply.Options){$reply.Options.Ttl}else{'-'}
-                    [void]$results.Add([pscustomobject]@{Target=$j.Target;Alias=$j.Alias;Success=$true;Status='ONLINE';Time=[int64]$reply.RoundtripTime;TTL=$ttl;Address=$reply.Address.ToString();Detail='Success'})
-                } else {
-                    [void]$results.Add([pscustomobject]@{Target=$j.Target;Alias=$j.Alias;Success=$false;Status='OFFLINE';Time='-';TTL='-';Address='-';Detail=$reply.Status.ToString()})
+        # Observe completed tasks independently so a slow peer cannot date every sample at batch completion.
+        $pending=New-Object System.Collections.Generic.List[object]
+        foreach($job in $jobs){[void]$pending.Add($job)}
+        $deadline=[Diagnostics.Stopwatch]::StartNew()
+        while($pending.Count -gt 0){
+            foreach($j in $pending.ToArray()){
+                if(-not $j.Task.IsCompleted -and $deadline.ElapsedMilliseconds -lt ($timeout+1500)){continue}
+                $sample=$null
+                try {
+                    if(-not $j.Task.IsCompleted){throw 'Local task completion deadline exceeded'}
+                    if($j.Task.IsFaulted){throw $j.Task.Exception.GetBaseException()}
+                    if($j.Task.IsCanceled){throw 'Measurement cancelled'}
+                    $reply=$j.Task.Result
+                    if($reply.Status -eq [Net.NetworkInformation.IPStatus]::Success){
+                        $ttl=if($reply.Options){$reply.Options.Ttl}else{'-'}
+                        $sample=[pscustomobject]@{Target=$j.Target;Alias=$j.Alias;Success=$true;Status='ONLINE';Time=[int64]$reply.RoundtripTime;TTL=$ttl;Address=$reply.Address.ToString();Detail='Success'}
+                    } else {
+                        $sample=[pscustomobject]@{Target=$j.Target;Alias=$j.Alias;Success=$false;Status='OFFLINE';Time='-';TTL='-';Address='-';Detail=$reply.Status.ToString()}
+                    }
+                } catch {
+                    $sample=[pscustomobject]@{Target=$j.Target;Alias=$j.Alias;Success=$false;Status='ERROR';Time='-';TTL='-';Address='-';Detail=$_.Exception.Message}
+                } finally {
+                    try{$j.Ping.Dispose()}catch{Write-Verbose $_.Exception.Message}
+                    [void]$pending.Remove($j);$completed++
                 }
-            } catch {
-                [void]$results.Add([pscustomobject]@{Target=$j.Target;Alias=$j.Alias;Success=$false;Status='ERROR';Time='-';TTL='-';Address='-';Detail=$_.Exception.Message})
-            } finally {
-                try{$j.Ping.Dispose()}catch{}
-                $completed++
+                $sample | Add-Member -NotePropertyName ObservedAt -NotePropertyValue ([datetime]::Now.ToString('o'))
+                $sample | Add-Member -NotePropertyName ObservedMono -NotePropertyValue ([double][Diagnostics.Stopwatch]::GetTimestamp()/[Diagnostics.Stopwatch]::Frequency)
+                [void]$results.Add($sample)
             }
+            if($pending.Count -gt 0){Start-Sleep -Milliseconds 10}
         }
         Write-Heartbeat 'Working' $requestId
     }

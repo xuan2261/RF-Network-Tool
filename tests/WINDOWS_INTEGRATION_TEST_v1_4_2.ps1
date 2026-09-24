@@ -76,6 +76,26 @@ try{
   [IO.File]::WriteAllText($targets,(@([pscustomobject]@{IP='127.0.0.1';CurrentName='';CurrentSource='Unknown';Status='Online'})|ConvertTo-Json -Depth 3),(New-Object Text.UTF8Encoding($true)))
   $discRc=Invoke-BoundedPs $nameWorker @('-TargetsFile',('"'+$targets+'"'),'-CacheFile',('"'+$cache+'"'),'-RunId',$discRun,'-DurationSec','5','-DiscoveryProfile','FAST','-Gateway','""','-LocalIP','127.0.0.1','-LogFile',('"'+$dlog+'"')) 20000 'Discovery worker'
   Assert-True ($discRc -eq 0) 'Discovery worker exit 0'
+  $terminalPath=$cache+'.result.json'
+  Assert-True (Test-Path -LiteralPath $terminalPath) 'Discovery terminal exists'
+  if(Test-Path -LiteralPath $terminalPath){
+    $terminal=[IO.File]::ReadAllText($terminalPath)|ConvertFrom-Json
+    Assert-True ([string]$terminal.status -eq 'SUCCESS' -and $terminal.completedWindow -is [bool] -and $terminal.completedWindow -and [double]$terminal.windowElapsedMs -ge 5000 -and [string]$terminal.runId -eq $discRun) 'Discovery terminal independently proves requested observation window'
+  }
+  $badTargets=Join-Path $tmp 'invalid-targets.json';[IO.File]::WriteAllText($badTargets,'{broken')
+  $badCache=Join-Path $tmp 'invalid-cache.json'
+  $badRc=Invoke-BoundedPs $nameWorker @('-TargetsFile',('"'+$badTargets+'"'),'-CacheFile',('"'+$badCache+'"'),'-RunId','invalid','-DurationSec','5') 10000 'Discovery invalid input'
+  Assert-True ($badRc -ne 0) 'Discovery invalid input cannot succeed'
+  $badTerminal=[IO.File]::ReadAllText($badCache+'.result.json')|ConvertFrom-Json
+  Assert-True ([string]$badTerminal.status -eq 'ERROR' -and -not [bool]$badTerminal.completedWindow) 'Discovery error terminal'
+  $cancelFlag=Join-Path $tmp 'discovery.cancel';[IO.File]::WriteAllText($cancelFlag,'cancel')
+  $cancelRc=Invoke-BoundedPs $nameWorker @('-TargetsFile',('"'+$targets+'"'),'-CacheFile',('"'+$badCache+'"'),'-RunId','cancelled','-CancelFile',('"'+$cancelFlag+'"'),'-DurationSec','5') 10000 'Discovery cancelled input'
+  Assert-True ($cancelRc -eq 3) 'Discovery cancellation has distinct exit code'
+  $cancelTerminal=[IO.File]::ReadAllText($badCache+'.result.json')|ConvertFrom-Json
+  Assert-True ([string]$cancelTerminal.status -eq 'CANCELLED' -and -not [bool]$cancelTerminal.completedWindow -and [string]$cancelTerminal.runId -eq 'cancelled') 'Discovery cancellation terminal'
+  Write-Host ('Discovery overwrite result: exit={0}; status={1}; run={2}' -f $cancelRc,$cancelTerminal.status,$cancelTerminal.runId)
+  Assert-True (@(Get-ChildItem -LiteralPath $tmp -Filter '*.previous').Count -eq 0) 'Discovery terminal replacement leaves no backup file'
+
   Assert-True (Test-Path $cache) 'FAST discovery cache exists'
   if(Test-Path $cache){$dc=[IO.File]::ReadAllText($cache)|ConvertFrom-Json;Assert-True ([int]$dc.schemaVersion -eq 4) 'Discovery schema v4';Assert-True ([string]$dc.runId -eq $discRun) 'Discovery runId';Assert-True ([string]$dc.profile -eq 'FAST') 'Discovery profile FAST'}
 
@@ -92,7 +112,7 @@ try{
     $monitorRequestId='mon-'+[guid]::NewGuid().ToString('N');$monitorRequest=[ordered]@{schemaVersion=1;sessionId=$session;requestId=$monitorRequestId;kind='MONITOR';timeoutMs=1000;concurrency=2;targets=@([ordered]@{Target='127.0.0.1';Alias='Loopback Monitor'})}
     [IO.File]::WriteAllText((Join-Path $ipc ("request-$monitorRequestId.json")),($monitorRequest|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($true)))
     $monitorResultPath=Join-Path $ipc ("result-$monitorRequestId.json");Assert-True (Wait-Path $monitorResultPath 7000) 'Monitoring ping result created'
-    if(Test-Path $monitorResultPath){$mpr=[IO.File]::ReadAllText($monitorResultPath)|ConvertFrom-Json;Assert-True ([string]$mpr.kind -eq 'MONITOR') 'Monitoring ping kind preserved';$mrow=@($mpr.results|Select-Object -First 1);Assert-True ($mrow.Count -eq 1 -and [bool]$mrow[0].Success) 'Monitoring loopback ping success'}
+    if(Test-Path $monitorResultPath){$mpr=[IO.File]::ReadAllText($monitorResultPath)|ConvertFrom-Json;Assert-True ([string]$mpr.kind -eq 'MONITOR') 'Monitoring ping kind preserved';$mrow=@($mpr.results|Select-Object -First 1);Assert-True ($mrow.Count -eq 1 -and [bool]$mrow[0].Success) 'Monitoring loopback ping success';Assert-True ($mrow[0].PSObject.Properties['ObservedAt'] -and $mrow[0].PSObject.Properties['ObservedMono'] -and [double]$mrow[0].ObservedMono -gt 0) 'Monitoring per-target observation timestamp present'}
 
     # Request-level worker failure must emit an ERROR payload with empty results, then the persistent worker must continue serving requests.
     $badId='bad-'+[guid]::NewGuid().ToString('N');$badReq=[ordered]@{schemaVersion=1;sessionId=$session;requestId=$badId;kind='PING_SINGLE';timeoutMs='not-an-integer';concurrency=2;targets=@([ordered]@{Target='127.0.0.1';Alias='Bad fixture'})}

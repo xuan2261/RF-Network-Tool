@@ -91,6 +91,11 @@ $script:ScanHistory = @()
 $script:CurrentScanProfile = 'BALANCED'
 $script:CurrentScanStartedAt = $null
 $script:CurrentScanCoreElapsedMs = 0
+$script:CurrentScanClock = $null
+$script:CurrentScanCounts = ''
+$script:DiscoveryClock = $null
+$script:DiscoveryDeadlineSec = 0
+$script:DiscoveryResultFile = ''
 $script:MainForm = $null
 $script:DiscoverySnapshotReady = $false
 $script:MdnsNameCache = @{}
@@ -112,6 +117,7 @@ $script:MonitoringLastUiRefresh = $null
 $script:MonitoringSchedulerBusy = $false
 $script:MonitoringGridUpdating = $false
 $script:MonitoringSessionStartedAt = Get-Date
+$script:MonitoringEpoch = [guid]::NewGuid().ToString('N')
 
 function Write-RuntimeLog([string]$area, [string]$message) {
     try {
@@ -156,7 +162,7 @@ function Write-DeepUiE2eResult([string]$status,[string]$stage,[string]$detail,[o
 }
 
 function Remove-TransientRuntimeFiles {
-    foreach($path in @($DiscoveryCacheFile,$DiscoveryTargetsFile,$ScanConfigFile,$ScanStateFile,$ScanCancelFile)) {
+    foreach($path in @($script:DiscoveryResultFile,$DiscoveryCacheFile,$DiscoveryTargetsFile,$ScanConfigFile,$ScanStateFile,$ScanCancelFile)) {
         if([string]::IsNullOrWhiteSpace([string]$path)){continue}
         try { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue } catch { }
         try { Get-ChildItem -LiteralPath $DataDir -Filter ((Split-Path -Leaf $path)+'.*.tmp') -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue } catch { }
@@ -304,19 +310,8 @@ function Fail-PendingPingRequests([string]$message='Ping worker stopped') {
         foreach($t in @($meta.Targets)){
             $target=[string]$t.Target
             if([string]$meta.Kind -eq 'MONITOR'){
-                try{
-                    if($script:MonitoringStats.ContainsKey($target)){
-                        $stat=$script:MonitoringStats[$target]
-                        if($stat.LastResultAt){
-                            $elapsed=((Get-Date)-[datetime]$stat.LastResultAt).TotalSeconds
-                            if($elapsed -gt 0){if($stat.State -eq 'ONLINE'){$stat.UptimeSec+=$elapsed}elseif($stat.State -eq 'OFFLINE'){$stat.DowntimeSec+=$elapsed}}
-                            # Freeze accounting while the monitoring engine itself is unavailable. A worker failure is not a network outage.
-                            $stat.LastResultAt=$null
-                        }
-                        $stat.LastDetail="Worker error: $message"
-                        Update-MonitorGridRow $target
-                    }
-                }catch{}
+                # A worker failure is not a network outage; only affect the current measurement generation.
+                if(Test-MonitorRequest -meta $meta -target $target){Set-MonitorMeasurementError -target $target -message $message}
             } elseif($script:TargetRows.ContainsKey($target)){
                 $row=Get-TargetGridRow $target
                 if($row){$row.Cells['PingStatus'].Value="ERROR | $message";$row.Cells['PingStatus'].Style.ForeColor=[Drawing.Color]::Firebrick}
@@ -341,7 +336,7 @@ function Enqueue-PingRequest([string]$kind,$targets,[int]$timeoutMs=1500,[int]$c
     }
     $path=Join-Path $PingIpcDir ("request-$id.json")
     Write-TextAtomic $path (ConvertTo-Json -InputObject $request -Depth 6)
-    $script:PingRequests[$id]=[pscustomobject]@{Kind=$kind;StartedAt=Get-Date;Targets=@($list)}
+    $script:PingRequests[$id]=[pscustomobject]@{Kind=$kind;StartedAt=Get-Date;Targets=@($list);MonitorStamp=(Get-MonitorRequestStamp $list)}
     foreach($t in $list){$targetKey=[string]$t.Target;$script:PingTargetBusy[$targetKey]=$id;if($kind -ne 'RF'){$script:PingLatestRequest[$targetKey]=$id}}
     return $id
 }
@@ -355,21 +350,7 @@ function Set-PingTargetEngineError([string]$target,[string]$kind,[string]$messag
     if([string]::IsNullOrWhiteSpace($target)){return}
     if([string]::IsNullOrWhiteSpace($message)){$message='Ping worker returned no result.'}
     if($kind -eq 'MONITOR'){
-        try{
-            if($script:MonitoringStats.ContainsKey($target)){
-                $stat=$script:MonitoringStats[$target]
-                $now=Get-Date
-                if($stat.LastResultAt){
-                    $elapsed=($now-[datetime]$stat.LastResultAt).TotalSeconds
-                    if($elapsed -gt 0){if($stat.State -eq 'ONLINE'){$stat.UptimeSec+=$elapsed}elseif($stat.State -eq 'OFFLINE'){$stat.DowntimeSec+=$elapsed}}
-                    # An engine failure is not evidence that the monitored device went offline.
-                    $stat.LastResultAt=$null
-                }
-                $stat.LastScheduledAt=$null
-                $stat.LastDetail="Engine error: $message"
-                Update-MonitorGridRow $target
-            }
-        } catch {Write-RuntimeLog 'MONITOR-ENGINE-ERROR' ($_ | Out-String)}
+        Set-MonitorMeasurementError -target $target -message $message
         return
     }
     if($kind -eq 'RF'){
@@ -405,7 +386,7 @@ function Finalize-PingRequest([string]$requestId,$meta,[string]$kind,$completedT
             if($script:PingLatestRequest.ContainsKey($target) -and [string]$script:PingLatestRequest[$target] -eq $requestId){
                 $script:PingLatestRequest.Remove($target);$ownedByRequest=$true
             }
-            if(-not $hasResult -and $ownedByRequest){
+            if(-not $hasResult -and $ownedByRequest -and ($kind -ne 'MONITOR' -or (Test-MonitorRequest -meta $meta -target $target))){
                 $detail=if(-not [string]::IsNullOrWhiteSpace($workerError)){$workerError}else{'Ping worker returned an incomplete result.'}
                 Set-PingTargetEngineError $target $kind $detail
                 $missing++
@@ -435,6 +416,7 @@ function Apply-PingWorkerResults {
                 $target=([string]$r.Target).Trim()
                 if([string]::IsNullOrWhiteSpace($target)){continue}
                 $completedTargets[$target.ToLowerInvariant()]=$true
+                if($kind -eq 'MONITOR' -and -not (Test-MonitorRequest -meta $meta -target $target)){continue}
                 if($kind -ne 'RF' -and $script:PingLatestRequest.ContainsKey($target) -and [string]$script:PingLatestRequest[$target] -ne $requestId){
                     Write-RuntimeLog 'PING-RESULT-STALE' "Ignored stale result target=$target request=$requestId latest=$($script:PingLatestRequest[$target])"
                     continue
@@ -1523,11 +1505,67 @@ function Get-MonitorInterval([object]$value) {
     return $best
 }
 
+function Get-MonitorClock {
+    return [pscustomobject]@{At=[datetime]::Now;Mono=([double][Diagnostics.Stopwatch]::GetTimestamp()/[Diagnostics.Stopwatch]::Frequency)}
+}
+
+function Get-MonitorHealth($stat,$cfg) {
+    if(-not $cfg -or -not [bool]$cfg.Enabled){return 'PAUSED'}
+    if(-not $stat){return 'WAITING'}
+    if($stat.CollectorHealth -eq 'ENGINE ERROR'){return 'ENGINE ERROR'}
+    if($null -eq $stat.AccountingMono){return 'WAITING'}
+    $age=(Get-MonitorClock).Mono-[double]$stat.LastSampleMono
+    if($age -gt [Math]::Max(10,3*(Get-MonitorInterval $cfg.IntervalSec)+1.2)){return 'STALE'}
+    return 'OK'
+}
+
+function Add-MonitorElapsed($stat,[double]$mono) {
+    if($null -eq $stat.AccountingMono){return}
+    # Never extrapolate beyond the freshness lease, even after sleep or an engine stall.
+    $end=[Math]::Min($mono,([double]$stat.LastSampleMono+[double]$stat.FreshnessSec))
+    $delta=[Math]::Max(0,$end-[double]$stat.AccountingMono)
+    if($stat.State -eq 'ONLINE'){$stat.UptimeSec+=$delta}
+    elseif($stat.State -eq 'OFFLINE'){$stat.DowntimeSec+=$delta}
+    $stat.AccountingMono=[Math]::Max([double]$stat.AccountingMono,$end)
+}
+
+function Set-MonitorMeasurementError {
+    [CmdletBinding(SupportsShouldProcess=$true,ConfirmImpact='Low')]
+    param([string]$target,[string]$message)
+    if(-not $script:MonitoringStats.ContainsKey($target)){return}
+    if(-not $PSCmdlet.ShouldProcess($target,'Record local measurement error')){return}
+    $stat=$script:MonitoringStats[$target]
+    Add-MonitorElapsed -stat $stat -mono (Get-MonitorClock).Mono
+    $stat.AccountingMono=$null
+    $stat.CollectorHealth='ENGINE ERROR';$stat.MeasurementErrorCount++
+    $stat.LastDetail="Engine error: $message";$stat.LastScheduledAt=$null
+    Update-MonitorGridRow $target
+}
+
+function Get-MonitorRequestStamp($targets) {
+    $generations=@{}
+    foreach($t in @($targets)){
+        $key=[string]$t.Target
+        if($script:MonitoringStats.ContainsKey($key)){$generations[$key]=[string]$script:MonitoringStats[$key].Generation}
+    }
+    return [pscustomobject]@{Epoch=$script:MonitoringEpoch;Generations=$generations}
+}
+
+function Test-MonitorRequest($meta,[string]$target) {
+    if(-not $meta -or -not $meta.PSObject.Properties['MonitorStamp']){return $false}
+    $stamp=$meta.MonitorStamp
+    if(-not $stamp -or [string]$stamp.Epoch -ne $script:MonitoringEpoch){return $false}
+    if(-not $script:MonitoringStats.ContainsKey($target) -or -not $stamp.Generations.ContainsKey($target)){return $false}
+    return ([string]$stamp.Generations[$target] -eq [string]$script:MonitoringStats[$target].Generation)
+}
+
 function New-MonitorStat([string]$target,[string]$name='') {
     return [pscustomobject]@{
         Target=$target;Name=$name;State='UNKNOWN';CurrentMs=$null;MinMs=$null;MaxMs=$null;SumMs=[double]0;
         SuccessCount=0;FailureCount=0;TotalCount=0;OutageCount=0;OnlineSince=$null;OfflineSince=$null;
-        LastChange=$null;LastResultAt=$null;LastScheduledAt=$null;UptimeSec=[double]0;DowntimeSec=[double]0;LastDetail=''
+        LastChange=$null;LastResultAt=$null;LastScheduledAt=$null;UptimeSec=[double]0;DowntimeSec=[double]0;LastDetail='';
+        CollectorHealth='WAITING';MeasurementErrorCount=0;Generation=[guid]::NewGuid().ToString('N');
+        LastSampleMono=$null;AccountingMono=$null;ReceivedAt=$null;FirstSampleAt=$null;FreshnessSec=16.2
     }
 }
 
@@ -1592,8 +1630,8 @@ function Save-MonitoringHistory {
     } catch {Write-RuntimeLog 'MONITOR-HISTORY-SAVE' ($_|Out-String)}
 }
 
-function Add-MonitoringEvent([string]$target,[string]$name,[string]$fromState,[string]$toState,$latencyMs,[string]$detail) {
-    $ev=[pscustomobject]@{At=(Get-Date).ToString('o');Target=$target;Name=$name;From=$fromState;To=$toState;LatencyMs=$latencyMs;Detail=$detail}
+function Add-MonitoringEvent([string]$target,[string]$name,[string]$fromState,[string]$toState,$latencyMs,[string]$detail,[datetime]$observedAt=(Get-Date)) {
+    $ev=[pscustomobject]@{At=$observedAt.ToString('o');Target=$target;Name=$name;From=$fromState;To=$toState;LatencyMs=$latencyMs;Detail=$detail}
     [void]$script:MonitoringEvents.Add($ev)
     while($script:MonitoringEvents.Count -gt $script:MonitoringMaxEvents){$script:MonitoringEvents.RemoveAt(0)}
     Save-MonitoringHistory
@@ -1603,7 +1641,7 @@ function Add-MonitoringEvent([string]$target,[string]$name,[string]$fromState,[s
 function Format-MonitorDuration([double]$seconds) {
     if($seconds -lt 0){$seconds=0}
     $ts=[TimeSpan]::FromSeconds([Math]::Floor($seconds))
-    if($ts.TotalDays -ge 1){return ('{0}d {1:00}:{2:00}:{3:00}' -f [int]$ts.TotalDays,$ts.Hours,$ts.Minutes,$ts.Seconds)}
+    if($ts.TotalDays -ge 1){return ('{0}d {1:00}:{2:00}:{3:00}' -f $ts.Days,$ts.Hours,$ts.Minutes,$ts.Seconds)}
     return ('{0:00}:{1:00}:{2:00}' -f $ts.Hours,$ts.Minutes,$ts.Seconds)
 }
 
@@ -1619,29 +1657,28 @@ function Get-MonitorAverageMs($stat) {
 
 function Get-MonitorDisplayedUptime($stat) {
     if(-not $stat){return 0.0}
-    $v=[double]$stat.UptimeSec
-    if($stat.State -eq 'ONLINE' -and $stat.LastResultAt){$v+=((Get-Date)-[datetime]$stat.LastResultAt).TotalSeconds}
-    return [Math]::Max(0,$v)
+    $extra=0.0
+    if($stat.State -eq 'ONLINE' -and $null -ne $stat.AccountingMono){$extra=[Math]::Max(0,[Math]::Min((Get-MonitorClock).Mono,([double]$stat.LastSampleMono+$stat.FreshnessSec))-[double]$stat.AccountingMono)}
+    return [Math]::Max(0,([double]$stat.UptimeSec+$extra))
 }
 
 function Get-MonitorDisplayedDowntime($stat) {
     if(-not $stat){return 0.0}
-    $v=[double]$stat.DowntimeSec
-    if($stat.State -eq 'OFFLINE' -and $stat.LastResultAt){$v+=((Get-Date)-[datetime]$stat.LastResultAt).TotalSeconds}
-    return [Math]::Max(0,$v)
+    $extra=0.0
+    if($stat.State -eq 'OFFLINE' -and $null -ne $stat.AccountingMono){$extra=[Math]::Max(0,[Math]::Min((Get-MonitorClock).Mono,([double]$stat.LastSampleMono+$stat.FreshnessSec))-[double]$stat.AccountingMono)}
+    return [Math]::Max(0,([double]$stat.DowntimeSec+$extra))
 }
 
 function Set-MonitorEnabledState([string]$target,[bool]$enabled) {
     if(-not $script:MonitoringConfig.ContainsKey($target)){return}
     $cfg=$script:MonitoringConfig[$target]
     $stat=if($script:MonitoringStats.ContainsKey($target)){$script:MonitoringStats[$target]}else{$null}
-    $now=Get-Date
-    if(-not $enabled -and [bool]$cfg.Enabled -and $stat -and $stat.LastResultAt){
-        $elapsed=($now-[datetime]$stat.LastResultAt).TotalSeconds
-        if($elapsed -gt 0){if($stat.State -eq 'ONLINE'){$stat.UptimeSec+=$elapsed}elseif($stat.State -eq 'OFFLINE'){$stat.DowntimeSec+=$elapsed}}
-        $stat.LastResultAt=$null
+    if($stat -and $enabled -ne [bool]$cfg.Enabled){
+        Add-MonitorElapsed -stat $stat -mono (Get-MonitorClock).Mono
+        $stat.AccountingMono=$null;$stat.LastScheduledAt=$null
+        $stat.Generation=[guid]::NewGuid().ToString('N')
+        $stat.CollectorHealth=if($enabled){'WAITING'}else{'PAUSED'}
     }
-    if($enabled -and -not [bool]$cfg.Enabled -and $stat){$stat.LastScheduledAt=$null}
     $cfg.Enabled=$enabled
 }
 
@@ -1653,27 +1690,50 @@ function Apply-MonitorPingResult($result) {
     if(-not [bool]$cfg.Enabled){return}
     if(-not $script:MonitoringStats.ContainsKey($target)){$script:MonitoringStats[$target]=New-MonitorStat $target ([string]$cfg.Name)}
     $stat=$script:MonitoringStats[$target]
-    $now=Get-Date
-    if($stat.LastResultAt){
-        $elapsed=($now-[datetime]$stat.LastResultAt).TotalSeconds
-        if($elapsed -gt 0){if($stat.State -eq 'ONLINE'){$stat.UptimeSec+=$elapsed}elseif($stat.State -eq 'OFFLINE'){$stat.DowntimeSec+=$elapsed}}
+    $clock=Get-MonitorClock
+    $stat.ReceivedAt=$clock.At
+    # A local exception or malformed result is not an ICMP loss sample.
+    if($result.Success -isnot [bool] -or [string]$result.Status -eq 'ERROR' -or
+       (-not $result.Success -and [string]$result.Status -ne 'OFFLINE')){
+        Set-MonitorMeasurementError -target $target -message ([string]$result.Detail);return
     }
-    $oldState=[string]$stat.State
+    if($result.Success){
+        $ms=0.0
+        if(-not [double]::TryParse([string]$result.Time,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$ms) -or [double]::IsNaN($ms) -or [double]::IsInfinity($ms) -or $ms -lt 0){
+            Set-MonitorMeasurementError -target $target -message 'Invalid latency value';return
+        }
+    }
+    $mono=[double]$clock.Mono;$now=$clock.At
+    if($result.PSObject.Properties['ObservedMono']){
+        $sampleMono=0.0;$sampleAt=[datetime]::MinValue
+        if(-not [double]::TryParse([string]$result.ObservedMono,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$sampleMono) -or [double]::IsNaN($sampleMono) -or [double]::IsInfinity($sampleMono) -or
+           $sampleMono -lt 0 -or $sampleMono -gt $mono+0.1 -or -not [datetime]::TryParse([string]$result.ObservedAt,[ref]$sampleAt)){
+            Set-MonitorMeasurementError -target $target -message 'Invalid observation timestamp';return
+        }
+        $mono=$sampleMono;$now=$sampleAt
+    }
+    if($null -ne $stat.LastSampleMono -and $mono -le [double]$stat.LastSampleMono){return}
+    $continuous=($null -ne $stat.AccountingMono -and ($mono-[double]$stat.LastSampleMono) -le [double]$stat.FreshnessSec)
+    Add-MonitorElapsed -stat $stat -mono $mono
+    $oldState=if($continuous){[string]$stat.State}else{'UNKNOWN'}
     $stat.TotalCount=[int]$stat.TotalCount+1
-    if([bool]$result.Success){
-        $ms=[double]$result.Time;$stat.SuccessCount=[int]$stat.SuccessCount+1;$stat.CurrentMs=$ms;$stat.SumMs=[double]$stat.SumMs+$ms
-        if($null -eq $stat.MinMs -or $ms -lt [double]$stat.MinMs){$stat.MinMs=$ms};if($null -eq $stat.MaxMs -or $ms -gt [double]$stat.MaxMs){$stat.MaxMs=$ms}
+    if($result.Success){
+        $stat.SuccessCount=[int]$stat.SuccessCount+1;$stat.CurrentMs=$ms;$stat.SumMs=[double]$stat.SumMs+$ms
+        if($null -eq $stat.MinMs -or $ms -lt [double]$stat.MinMs){$stat.MinMs=$ms}
+        if($null -eq $stat.MaxMs -or $ms -gt [double]$stat.MaxMs){$stat.MaxMs=$ms}
         $stat.State='ONLINE';$stat.LastDetail='Success'
     } else {
         $stat.FailureCount=[int]$stat.FailureCount+1;$stat.CurrentMs=$null;$stat.State='OFFLINE';$stat.LastDetail=[string]$result.Detail
     }
-    $stat.LastResultAt=$now
+    $stat.LastResultAt=$now;$stat.LastSampleMono=$mono;$stat.AccountingMono=$mono;$stat.CollectorHealth='OK'
+    $stat.FreshnessSec=[Math]::Max(10,3*(Get-MonitorInterval $cfg.IntervalSec)+1.2)
+    if(-not $stat.FirstSampleAt){$stat.FirstSampleAt=$now}
     $newState=[string]$stat.State
     if($oldState -ne $newState){
         $stat.LastChange=$now
         if($newState -eq 'ONLINE'){$stat.OnlineSince=$now;$stat.OfflineSince=$null}
         elseif($newState -eq 'OFFLINE'){$stat.OfflineSince=$now;$stat.OnlineSince=$null;if($oldState -eq 'ONLINE'){$stat.OutageCount=[int]$stat.OutageCount+1}}
-        Add-MonitoringEvent $target ([string]$cfg.Name) $oldState $newState $stat.CurrentMs ([string]$stat.LastDetail)
+        Add-MonitoringEvent -target $target -name ([string]$cfg.Name) -fromState $oldState -toState $newState -latencyMs $stat.CurrentMs -detail ([string]$stat.LastDetail) -observedAt $now
         if([bool]$cfg.Alert -and $oldState -ne 'UNKNOWN'){
             try{
                 $msg="[$($cfg.Name)] $target : $oldState -> $newState"
@@ -1815,6 +1875,7 @@ function Start-DiscoveryWorker([array]$records,[string]$gateway='',[string]$loca
         $script:DiscoveryRunId=[guid]::NewGuid().ToString('N')
         $script:DiscoveryTargetsFile=Join-Path $DataDir ("RF-Network-Tool.discovery-targets.$RuntimeSessionId.$($script:DiscoveryRunId).json")
         $script:DiscoveryCacheFile=Join-Path $DataDir ("RF-Network-Tool.discovery-cache.$RuntimeSessionId.$($script:DiscoveryRunId).json")
+        $script:DiscoveryResultFile=$DiscoveryCacheFile+'.result.json'
         $targets=@()
         foreach($r in @($records)){
             if($r -and $r.IP){
@@ -1833,12 +1894,15 @@ function Start-DiscoveryWorker([array]$records,[string]$gateway='',[string]$loca
         $argList=@(
             '-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$DiscoveryWorkerScript+'"'),
             '-TargetsFile',('"'+$DiscoveryTargetsFile+'"'),'-CacheFile',('"'+$DiscoveryCacheFile+'"'),'-RunId',$script:DiscoveryRunId,
+            '-SessionId',$RuntimeSessionId,'-ResultFile',('"'+$script:DiscoveryResultFile+'"'),
             '-DurationSec',[string]$script:DiscoveryDurationSec,'-DiscoveryProfile',$p,'-Gateway',('"'+$gateway+'"'),'-LocalIP',('"'+$localIp+'"'),'-LogFile',('"'+$workerLog+'"'),
             '-ParentPid',[string]$PID,'-ParentStartTicks',[string](Get-CurrentProcessStartTicks)
         )
         $psExe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $script:DiscoveryProcess=Start-Process -FilePath $psExe -ArgumentList $argList -WindowStyle Hidden -PassThru
         $script:DiscoveryStartedAt=Get-Date
+        $script:DiscoveryClock=[Diagnostics.Stopwatch]::StartNew()
+        $script:DiscoveryDeadlineSec=$script:DiscoveryDurationSec+30+[Math]::Min(1200,($targets.Count*4))
         $script:DiscoveryAppliedCount=0
         Write-RuntimeLog 'NAME-DISCOVERY' "Started PID=$($script:DiscoveryProcess.Id) Targets=$($targets.Count) Profile=$p Duration=$($script:DiscoveryDurationSec)s"
         return $true
@@ -2659,25 +2723,31 @@ $ctxScan=New-Object System.Windows.Forms.ContextMenuStrip
 $miDetail=$ctxScan.Items.Add('Xem chi tiết thiết bị')
 $miCopyIp=$ctxScan.Items.Add('Copy IP')
 $gridScan.ContextMenuStrip=$ctxScan
-$miDetail.Add_Click({if($gridScan.CurrentRow){$ai=Update-ScanAdapterDefaults;Show-DeviceDetails $gridScan.CurrentRow $ai}})
+$miDetail.Add_Click({if($gridScan.CurrentRow){$ai=Get-SelectedScanAdapterInfo;Show-DeviceDetails $gridScan.CurrentRow $ai}})
 $miCopyIp.Add_Click({try{if($gridScan.CurrentRow){[void](Set-ClipboardTextSafe ([string]$gridScan.CurrentRow.Cells['IP'].Value) 'Copy IP')}}catch{Write-RuntimeLog 'COPY-IP' ($_ | Out-String)}})
-$gridScan.Add_CellDoubleClick({param($source,$evt);if($evt.RowIndex -ge 0){$ai=Update-ScanAdapterDefaults;Show-DeviceDetails $gridScan.Rows[$evt.RowIndex] $ai}})
-$gridScan.Add_KeyDown({param($source,$evt);if($evt.KeyCode -eq [Windows.Forms.Keys]::Enter -and $gridScan.CurrentRow){$evt.SuppressKeyPress=$true;$ai=Update-ScanAdapterDefaults;Show-DeviceDetails $gridScan.CurrentRow $ai}})
+$gridScan.Add_CellDoubleClick({param($source,$evt);if($evt.RowIndex -ge 0){$ai=Get-SelectedScanAdapterInfo;Show-DeviceDetails $gridScan.Rows[$evt.RowIndex] $ai}})
+$gridScan.Add_KeyDown({param($source,$evt);if($evt.KeyCode -eq [Windows.Forms.Keys]::Enter -and $gridScan.CurrentRow){$evt.SuppressKeyPress=$true;$ai=Get-SelectedScanAdapterInfo;Show-DeviceDetails $gridScan.CurrentRow $ai}})
+
+function Get-SelectedScanAdapterInfo {
+    $arr=@($cmbScanAdapter.Tag)
+    if($cmbScanAdapter.SelectedIndex -lt 0 -or $cmbScanAdapter.SelectedIndex -ge $arr.Count){return $null}
+    $adapter=$arr[$cmbScanAdapter.SelectedIndex];$ai=Get-AdapterIPv4Info $adapter
+    if(-not $ai){return $null}
+    $mac=Format-Mac ($adapter.GetPhysicalAddress().ToString())
+    $speedText=if($adapter.Speed -gt 0){if($adapter.Speed -ge 1000000000){"$([Math]::Round($adapter.Speed/1000000000,2)) Gbps"}else{"$([Math]::Round($adapter.Speed/1000000,0)) Mbps"}}else{'-'}
+    return [pscustomobject]@{Adapter=$adapter;AdapterName=$adapter.Name;IP=$ai.IP;Prefix=$ai.Prefix;Gateway=$ai.Gateway;InterfaceIndex=$ai.InterfaceIndex;MAC=$mac;LinkSpeed=$speedText}
+}
 
 function Update-ScanAdapterDefaults {
     try {
-        $arr=@($cmbScanAdapter.Tag)
-        if($cmbScanAdapter.SelectedIndex -lt 0 -or $cmbScanAdapter.SelectedIndex -ge $arr.Count){return $null}
-        $adapter=$arr[$cmbScanAdapter.SelectedIndex];$ai=Get-AdapterIPv4Info $adapter
-        if(-not $ai){$txtCidr.Text='';$lblScanStatus.Text='Card mạng không có IPv4 hợp lệ.';$lblAdapterInfo.Text='Local: - | Gateway: - | MAC: - | Link: -';return $null}
-        $prefix=[int]$ai.Prefix
-        $txtCidr.Text=if($prefix -lt 22){Get-NetworkCidr $ai.IP 24}else{Get-NetworkCidr $ai.IP $prefix}
-        if($prefix -lt 22){$lblScanStatus.Text="Sẵn sàng. CIDR đã tự giới hạn /24 để quét nhanh."}else{$lblScanStatus.Text="Sẵn sàng. Nhấn Scan / Rescan."}
-        $mac=Format-Mac ($adapter.GetPhysicalAddress().ToString())
-        $speedText=if($adapter.Speed -gt 0){if($adapter.Speed -ge 1000000000){"$([Math]::Round($adapter.Speed/1000000000,2)) Gbps"}else{"$([Math]::Round($adapter.Speed/1000000,0)) Mbps"}}else{'-'}
-        $lblAdapterInfo.Text="Local $($ai.IP)/$prefix | Gateway $($ai.Gateway) | MAC $mac | Link $speedText | $($adapter.NetworkInterfaceType)"
-        return [pscustomobject]@{Adapter=$adapter;AdapterName=$adapter.Name;IP=$ai.IP;Prefix=$ai.Prefix;Gateway=$ai.Gateway;InterfaceIndex=$ai.InterfaceIndex;MAC=$mac;LinkSpeed=$speedText}
-    } catch {$txtCidr.Text='';$lblScanStatus.Text="Không xác định được CIDR: $($_.Exception.Message)";$lblAdapterInfo.Text='Local: - | Gateway: - | MAC: - | Link: -';return $null}
+        $info=Get-SelectedScanAdapterInfo
+        if(-not $info){$txtCidr.Text='';$lblScanStatus.Text='Card mạng không có IPv4 hợp lệ.';$lblAdapterInfo.Text='Local: -';return $null}
+        $prefix=[int]$info.Prefix
+        $txtCidr.Text=if($prefix -lt 22){Get-NetworkCidr $info.IP 24}else{Get-NetworkCidr $info.IP $prefix}
+        $lblScanStatus.Text='Sẵn sàng. Nhấn Scan / Rescan.'
+        $lblAdapterInfo.Text="Local $($info.IP)/$prefix | Gateway $($info.Gateway) | MAC $($info.MAC) | Link $($info.LinkSpeed) | $($info.Adapter.NetworkInterfaceType)"
+        return $info
+    } catch {Write-RuntimeLog 'SCAN-ADAPTER' $_.Exception.Message;return $null}
 }
 
 function Get-AdapterPreferenceScore($adapter) {
@@ -2951,12 +3021,14 @@ function Apply-ScanStateToGrid($state) {
 }
 
 $btnStopScan.Add_Click({
+    $namesWereRunning=($null -ne $script:DiscoveryProcess)
     if($script:ScanActive){
         Stop-ScanWorker $false
         $lblScanStatus.Text='Đã yêu cầu dừng Network Scan...'
         $lblScanStatus.ForeColor=[Drawing.Color]::DarkOrange
     }
     Stop-DiscoveryWorker
+    if($namesWereRunning){Complete-DiscoveryDisplay 'CANCELLED'}
     if($discoveryTimer){$discoveryTimer.Stop()}
     if(-not $script:ScanActive){$btnStopScan.Enabled=$false}
 })
@@ -2977,32 +3049,66 @@ $btnUpdateOui.Add_Click({
     }
 })
 
+function Get-DiscoveryTerminalOutcome($result,[int]$exitCode,[string]$sessionId,[string]$runId,[int]$durationSec) {
+    if(-not $result){return 'ERROR: missing terminal evidence'}
+    if($result.schemaVersion -isnot [int] -and $result.schemaVersion -isnot [long]){return 'ERROR: invalid terminal schema'}
+    if($result.schemaVersion -ne 1){return 'ERROR: unsupported terminal schema'}
+    if([string]$result.sessionId -ne $sessionId -or [string]$result.runId -ne $runId){return 'ERROR: terminal identity mismatch'}
+    if([string]$result.status -eq 'CANCELLED'){
+        if($exitCode -eq 3 -and $result.completedWindow -is [bool] -and -not $result.completedWindow){return 'CANCELLED'}
+        return 'ERROR: contradictory cancellation evidence'
+    }
+    if($exitCode -ne 0 -or [string]$result.status -ne 'SUCCESS'){return 'ERROR: worker did not succeed'}
+    if($result.completedWindow -isnot [bool] -or -not $result.completedWindow){return 'ERROR: incomplete observation window'}
+    $ms=0.0
+    if(-not [double]::TryParse([string]$result.windowElapsedMs,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$ms) -or [double]::IsNaN($ms) -or [double]::IsInfinity($ms) -or $ms -lt ($durationSec*1000)){
+        return 'ERROR: observation time below requested duration'
+    }
+    if([int]$result.durationSec -ne $durationSec -or -not [string]::IsNullOrWhiteSpace([string]$result.error)){return 'ERROR: contradictory terminal evidence'}
+    return 'SUCCESS'
+}
+
+function Complete-DiscoveryDisplay([string]$outcome) {
+    $coreSec=[Math]::Round(([double]$script:CurrentScanCoreElapsedMs/1000.0),1)
+    $totalSec=if($script:CurrentScanClock){[Math]::Round($script:CurrentScanClock.Elapsed.TotalSeconds,1)}else{0}
+    $lblScanSummary.Text="$($script:CurrentScanProfile) | $($script:CurrentScanCounts) | Core ${coreSec}s | Total ${totalSec}s"
+    if($outcome -eq 'SUCCESS'){
+        $lblScanStatus.Text="Hoàn tất nhận dạng tên | cập nhật $($script:DiscoveryAppliedCount) tên"
+        $lblScanStatus.ForeColor=[Drawing.Color]::ForestGreen
+    } elseif($outcome -eq 'CANCELLED'){
+        $lblScanStatus.Text='Đã dừng nhận dạng tên; giữ kết quả quét cơ bản.'
+        $lblScanStatus.ForeColor=[Drawing.Color]::DarkOrange
+    } else {
+        $lblScanStatus.Text="Nhận dạng tên lỗi: $outcome | xem discovery-worker log; kết quả quét cơ bản vẫn được giữ."
+        $lblScanStatus.ForeColor=[Drawing.Color]::Firebrick
+        Write-RuntimeLog 'NAME-DISCOVERY-TERMINAL' $outcome
+    }
+}
+
 $discoveryTimer = New-Object System.Windows.Forms.Timer
 $discoveryTimer.Interval = 1000
 $discoveryTimer.Add_Tick({
     try {
         [void](Apply-DiscoveryCacheToGrid)
         if($script:DiscoveryProcess -and -not $script:DiscoveryProcess.HasExited){
-            $elapsed=if($script:DiscoveryStartedAt){[int]((Get-Date)-$script:DiscoveryStartedAt).TotalSeconds}else{0}
-            $elapsed=[Math]::Min($elapsed,[int]$script:DiscoveryDurationSec)
-            $lblScanStatus.Text="$($script:CurrentScanProfile) scan xong | nhận dạng tên nền $elapsed/$($script:DiscoveryDurationSec)s | cập nhật $($script:DiscoveryAppliedCount) tên"
-            $lblScanStatus.ForeColor=[Drawing.Color]::DarkOrange
-            $btnStopScan.Enabled=$true
-        } else {
-            [void](Apply-DiscoveryCacheToGrid)
-            if($script:DiscoveryStartedAt){
-                $totalSec=if($script:CurrentScanStartedAt){[Math]::Round(((Get-Date)-[datetime]$script:CurrentScanStartedAt).TotalSeconds,1)}else{0}
-                $coreSec=[Math]::Round(([double]$script:CurrentScanCoreElapsedMs/1000.0),1)
-                $lblScanStatus.Text="Hoàn tất $($script:CurrentScanProfile) + nhận dạng tên nền | cập nhật $($script:DiscoveryAppliedCount) tên | Core ${coreSec}s | Total ${totalSec}s"
-                $lblScanSummary.Text="$($script:CurrentScanProfile) | IPv4 $($script:ScanResults.Count) | Core ${coreSec}s | Total ${totalSec}s"
-                $lblScanStatus.ForeColor=[Drawing.Color]::ForestGreen
+            if($script:DiscoveryClock.Elapsed.TotalSeconds -gt $script:DiscoveryDeadlineSec){
+                Stop-DiscoveryWorker;$discoveryTimer.Stop();$btnStopScan.Enabled=$false
+                Complete-DiscoveryDisplay 'ERROR: worker exceeded bounded deadline';return
             }
-            $btnStopScan.Enabled=$false
-            $discoveryTimer.Stop()
-            if($script:DiscoveryProcess){try{$script:DiscoveryProcess.Dispose()}catch{};$script:DiscoveryProcess=$null}
+            $lblScanStatus.Text="Nhận dạng tên đang chạy | window $($script:DiscoveryDurationSec)s | cập nhật $($script:DiscoveryAppliedCount) tên"
+            $lblScanStatus.ForeColor=[Drawing.Color]::DarkOrange;return
         }
+        $terminal=$null;$workerExit=-1
+        if($script:DiscoveryProcess){$workerExit=$script:DiscoveryProcess.ExitCode}
+        if($script:DiscoveryResultFile -and (Test-Path -LiteralPath $script:DiscoveryResultFile)){
+            $terminal=[IO.File]::ReadAllText($script:DiscoveryResultFile)|ConvertFrom-Json -ErrorAction Stop
+        }
+        $outcome=Get-DiscoveryTerminalOutcome -result $terminal -exitCode $workerExit -sessionId $RuntimeSessionId -runId $script:DiscoveryRunId -durationSec $script:DiscoveryDurationSec
+        Complete-DiscoveryDisplay $outcome
+        $discoveryTimer.Stop();$btnStopScan.Enabled=$false;Stop-DiscoveryWorker
     } catch {
-        Write-RuntimeLog 'NAME-DISCOVERY-TIMER' ($_ | Out-String)
+        Complete-DiscoveryDisplay ('ERROR: '+$_.Exception.Message)
+        $discoveryTimer.Stop();$btnStopScan.Enabled=$false;Stop-DiscoveryWorker
     }
 })
 
@@ -3073,6 +3179,7 @@ $scanWorkerTimer.Add_Tick({
                     $durationSec=20
                     if($state.metrics -and $state.metrics.PSObject.Properties['DiscoveryDurationSec']){$durationSec=[int]$state.metrics.DiscoveryDurationSec}
                     $script:CurrentScanCoreElapsedMs=[int]$state.elapsedMs
+                    $script:CurrentScanCounts="Online $([int]$state.online) | L2 $([int]$state.seen) | NDP6 $ipv6Count | IPv4 $(@($state.results).Count)"
                     $phaseJson=''
                     try {
                         if($state.metrics -and $state.metrics.PSObject.Properties['PhaseElapsedMs']){$phaseJson=ConvertTo-Json -InputObject $state.metrics.PhaseElapsedMs -Compress}
@@ -3091,7 +3198,8 @@ $scanWorkerTimer.Add_Tick({
                         $discoveryTimer.Start()
                     } else {
                         $btnStopScan.Enabled=$false
-                        $lblScanStatus.Text="Hoàn tất $profileName | Online $([int]$state.online) | L2 Seen $([int]$state.seen) | NDP6 $ipv6Count | IPv4 $(@($state.results).Count)"
+                        if($gridScan.Rows.Count -gt 0){Complete-DiscoveryDisplay 'ERROR: worker could not start'}
+                        else{$lblScanStatus.Text='Hoàn tất quét cơ bản: không có thiết bị để nhận dạng tên.'}
                     }
                 }
                 Add-ScanHistoryRecord $state
@@ -3147,6 +3255,7 @@ $btnScan.Add_Click({
     $settings=Get-ScanProfileSettings $selectedScanProfile ([int]$numScanTimeout.Value) $targets.Count
     $script:CurrentScanProfile=[string]$settings.Profile
     $script:CurrentScanStartedAt=Get-Date
+    $script:CurrentScanClock=[Diagnostics.Stopwatch]::StartNew()
     $script:CurrentScanCoreElapsedMs=0
     $script:DiscoveryDurationSec=[int]$settings.DiscoveryDurationSec
     $scopeCidrs=if($routePlan){@($routePlan.Scopes|ForEach-Object {[string]$_.Cidr})}else{@($primaryCidr)}
@@ -3257,16 +3366,36 @@ $gridMonitor.Dock='Fill';$gridMonitor.AllowUserToAddRows=$false;$gridMonitor.All
 $gridMonitor.MultiSelect=$false;$gridMonitor.SelectionMode='FullRowSelect';$gridMonitor.AutoSizeColumnsMode='Fill';$gridMonitor.BackgroundColor=[Drawing.Color]::White;$gridMonitor.AutoGenerateColumns=$false
 $monitorSplit.Panel1.Controls.Add($gridMonitor)
 
-$mcEnabled=New-Object System.Windows.Forms.DataGridViewCheckBoxColumn;$mcEnabled.Name='MonEnabled';$mcEnabled.HeaderText='ON';$mcEnabled.FillWeight=5;[void]$gridMonitor.Columns.Add($mcEnabled)
-$mcName=New-Object System.Windows.Forms.DataGridViewTextBoxColumn;$mcName.Name='MonName';$mcName.HeaderText='THIẾT BỊ';$mcName.ReadOnly=$true;$mcName.FillWeight=16;[void]$gridMonitor.Columns.Add($mcName)
-$mcTarget=New-Object System.Windows.Forms.DataGridViewTextBoxColumn;$mcTarget.Name='MonTarget';$mcTarget.HeaderText='IP / HOST';$mcTarget.ReadOnly=$true;$mcTarget.FillWeight=17;[void]$gridMonitor.Columns.Add($mcTarget)
-$mcInterval=New-Object System.Windows.Forms.DataGridViewComboBoxColumn;$mcInterval.Name='MonInterval';$mcInterval.HeaderText='GIÂY';$mcInterval.FillWeight=6;foreach($v in @('1','2','5','10','30')){[void]$mcInterval.Items.Add($v)};[void]$gridMonitor.Columns.Add($mcInterval)
-$mcAlert=New-Object System.Windows.Forms.DataGridViewCheckBoxColumn;$mcAlert.Name='MonAlert';$mcAlert.HeaderText='ALERT';$mcAlert.FillWeight=6;[void]$gridMonitor.Columns.Add($mcAlert)
-foreach($spec in @(
-    @('MonState','STATUS',9),@('MonCurrent','NOW',7),@('MonMin','MIN ms',6),@('MonAvg','AVG ms',6),@('MonMax','MAX ms',6),@('MonSamples','OK/TOTAL',8),@('MonLoss','LOSS',7),@('MonUptime','UPTIME',9),@('MonDowntime','DOWNTIME',9),@('MonOutages','OUTAGES',7),@('MonLastSample','LAST SAMPLE',10),@('MonChanged','LAST CHANGE',12)
-)){
-    $c=New-Object System.Windows.Forms.DataGridViewTextBoxColumn;$c.Name=$spec[0];$c.HeaderText=$spec[1];$c.ReadOnly=$true;$c.FillWeight=[float]$spec[2];[void]$gridMonitor.Columns.Add($c)
+function Initialize-MonitorColumn($grid) {
+    $mcEnabled=New-Object System.Windows.Forms.DataGridViewCheckBoxColumn;$mcEnabled.Name='MonEnabled';$mcEnabled.HeaderText='ON';$mcEnabled.FillWeight=5;[void]$grid.Columns.Add($mcEnabled)
+    $mcName=New-Object System.Windows.Forms.DataGridViewTextBoxColumn;$mcName.Name='MonName';$mcName.HeaderText='THIẾT BỊ';$mcName.ReadOnly=$true;$mcName.FillWeight=16;[void]$grid.Columns.Add($mcName)
+    $mcTarget=New-Object System.Windows.Forms.DataGridViewTextBoxColumn;$mcTarget.Name='MonTarget';$mcTarget.HeaderText='IP / HOST';$mcTarget.ReadOnly=$true;$mcTarget.FillWeight=17;[void]$grid.Columns.Add($mcTarget)
+    $mcInterval=New-Object System.Windows.Forms.DataGridViewComboBoxColumn;$mcInterval.Name='MonInterval';$mcInterval.HeaderText='GIÂY';$mcInterval.FillWeight=6;foreach($v in @('1','2','5','10','30')){[void]$mcInterval.Items.Add($v)};[void]$grid.Columns.Add($mcInterval)
+    $mcAlert=New-Object System.Windows.Forms.DataGridViewCheckBoxColumn;$mcAlert.Name='MonAlert';$mcAlert.HeaderText='ALERT';$mcAlert.FillWeight=6;[void]$grid.Columns.Add($mcAlert)
+    foreach($spec in @(
+        @('MonState','STATUS',9),@('MonCurrent','NOW',7),@('MonMin','MIN ms',6),@('MonAvg','AVG ms',6),@('MonMax','MAX ms',6),@('MonSamples','OK/TOTAL',8),@('MonLoss','LOSS',7),@('MonUptime','UPTIME',9),@('MonDowntime','DOWNTIME',9),@('MonOutages','OUTAGES',7),@('MonLastSample','LAST SAMPLE',10),@('MonChanged','LAST CHANGE',12)
+    )){
+        $c=New-Object System.Windows.Forms.DataGridViewTextBoxColumn;$c.Name=$spec[0];$c.HeaderText=$spec[1];$c.ReadOnly=$true;$c.FillWeight=[float]$spec[2];[void]$grid.Columns.Add($c)
+    }
+
+    $grid.AutoSizeColumnsMode='None';$grid.ScrollBars='Both'
+    $grid.ColumnHeadersHeightSizeMode='AutoSize'
+    $grid.ColumnHeadersDefaultCellStyle.WrapMode='False'
+    foreach($column in $grid.Columns){
+        $header=[Windows.Forms.TextRenderer]::MeasureText([string]$column.HeaderText,$grid.Font).Width+28
+        $sample=if($column.Name -eq 'MonState'){'ENGINE ERROR'}elseif($column.Name -in @('MonLastSample','MonChanged')){'23:59:59'}elseif($column.Name -in @('MonUptime','MonDowntime')){'999d 23:59:59'}elseif($column.Name -eq 'MonSamples'){'999999/999999'}else{'9999.9 ms'}
+        $content=[Windows.Forms.TextRenderer]::MeasureText($sample,$grid.Font).Width+20
+        $column.MinimumWidth=[Math]::Max($header,$content);$column.Width=$column.MinimumWidth
+        if($column.Name -in @('MonEnabled','MonInterval','MonAlert')){$column.MinimumWidth=$header;$column.Width=$header}
+        if($column.Name -eq 'MonName'){$column.Width=[Math]::Max($column.MinimumWidth,130)}
+        if($column.Name -eq 'MonTarget'){$column.Width=[Math]::Max($column.MinimumWidth,145)}
+        $column.HeaderCell.ToolTipText=[string]$column.HeaderText
+    }
+    foreach($name in @('MonEnabled','MonName','MonTarget')){$grid.Columns[$name].Frozen=$true}
+    foreach($name in @('MonUptime','MonDowntime')){$grid.Columns[$name].HeaderCell.ToolTipText='Estimated observed ICMP state duration, not operating-system uptime.'}
 }
+
+Initialize-MonitorColumn $gridMonitor
 
 $gridMonitorTimeline=New-Object System.Windows.Forms.DataGridView
 $gridMonitorTimeline.Dock='Fill';$gridMonitorTimeline.AllowUserToAddRows=$false;$gridMonitorTimeline.AllowUserToDeleteRows=$false;$gridMonitorTimeline.AllowUserToResizeRows=$false;$gridMonitorTimeline.RowHeadersVisible=$false
@@ -3284,18 +3413,16 @@ function Update-MonitorGridRow([string]$target){
         if($null -eq $row){$idx=$gridMonitor.Rows.Add();$row=$gridMonitor.Rows[$idx];$row.Tag=$target}
         $row.Cells['MonEnabled'].Value=[bool]$cfg.Enabled;$row.Cells['MonName'].Value=[string]$cfg.Name;$row.Cells['MonTarget'].Value=$target;$row.Cells['MonInterval'].Value=[string](Get-MonitorInterval $cfg.IntervalSec);$row.Cells['MonAlert'].Value=[bool]$cfg.Alert
         $state=if($stat){[string]$stat.State}else{'UNKNOWN'}
-        $displayState=$state;$isPending=$false
-        if([bool]$cfg.Enabled -and $script:PingTargetBusy.ContainsKey($target)){
+        $health=Get-MonitorHealth -stat $stat -cfg $cfg
+        $displayState=if($health -eq 'OK'){$state}else{$health}
+        if($health -eq 'OK' -and $script:PingTargetBusy.ContainsKey($target)){
             $busyId=[string]$script:PingTargetBusy[$target]
-            if($script:PingRequests.ContainsKey($busyId) -and [string]$script:PingRequests[$busyId].Kind -eq 'MONITOR'){$isPending=$true}
+            if($script:PingRequests.ContainsKey($busyId) -and $script:PingRequests[$busyId].Kind -eq 'MONITOR'){$displayState='PENDING'}
         }
-        if($isPending){$displayState='PENDING'}
-        elseif($stat -and ([string]$stat.LastDetail).StartsWith('Engine error:')){$displayState='ENGINE ERROR'}
-        elseif([bool]$cfg.Enabled -and $state -eq 'UNKNOWN'){$displayState='WAITING'}
         $row.Cells['MonState'].Value=$displayState
         if($displayState -eq 'ONLINE'){$row.Cells['MonState'].Style.ForeColor=[Drawing.Color]::ForestGreen}
         elseif($displayState -eq 'OFFLINE' -or $displayState -eq 'ENGINE ERROR'){$row.Cells['MonState'].Style.ForeColor=[Drawing.Color]::Firebrick}
-        elseif($displayState -eq 'PENDING' -or $displayState -eq 'WAITING'){$row.Cells['MonState'].Style.ForeColor=[Drawing.Color]::DarkOrange}
+        elseif($displayState -in @('PENDING','WAITING','STALE')){$row.Cells['MonState'].Style.ForeColor=[Drawing.Color]::DarkOrange}
         else{$row.Cells['MonState'].Style.ForeColor=[Drawing.Color]::DimGray}
         $row.Cells['MonState'].ToolTipText=if($stat -and $stat.LastDetail){[string]$stat.LastDetail}elseif($displayState -eq 'WAITING'){'Waiting for the first monitoring sample.'}elseif($displayState -eq 'PENDING'){'Monitoring sample is in flight.'}else{''}
         $row.Cells['MonCurrent'].Value=if($stat -and $null -ne $stat.CurrentMs){"$([Math]::Round([double]$stat.CurrentMs,1)) ms"}else{'--'}
@@ -3303,13 +3430,14 @@ function Update-MonitorGridRow([string]$target){
         $avg=Get-MonitorAverageMs $stat;$row.Cells['MonAvg'].Value=if($null -ne $avg){"$avg"}else{'--'}
         $row.Cells['MonMax'].Value=if($stat -and $null -ne $stat.MaxMs){"$([Math]::Round([double]$stat.MaxMs,1))"}else{'--'}
         $row.Cells['MonSamples'].Value=if($stat){"$([int]$stat.SuccessCount)/$([int]$stat.TotalCount)"}else{'0/0'}
-        $row.Cells['MonSamples'].ToolTipText=if($stat){"Success=$([int]$stat.SuccessCount); Fail=$([int]$stat.FailureCount); Total=$([int]$stat.TotalCount)"}else{''}
+        $row.Cells['MonSamples'].ToolTipText=if($stat){"Success=$([int]$stat.SuccessCount); Network fail=$([int]$stat.FailureCount); Total=$([int]$stat.TotalCount); Measurement errors=$($stat.MeasurementErrorCount) (excluded from LOSS)"}else{''}
         $row.Cells['MonLoss'].Value=if($stat){"$(Get-MonitorLossPercent $stat)%"}else{'0.0%'}
         $row.Cells['MonUptime'].Value=if($stat){Format-MonitorDuration (Get-MonitorDisplayedUptime $stat)}else{'00:00:00'}
         $row.Cells['MonDowntime'].Value=if($stat){Format-MonitorDuration (Get-MonitorDisplayedDowntime $stat)}else{'00:00:00'}
         $row.Cells['MonOutages'].Value=if($stat){[string]$stat.OutageCount}else{'0'}
         $row.Cells['MonLastSample'].Value=if($stat -and $stat.LastResultAt){([datetime]$stat.LastResultAt).ToString('HH:mm:ss')}else{'--'}
         $row.Cells['MonChanged'].Value=if($stat -and $stat.LastChange){([datetime]$stat.LastChange).ToString('HH:mm:ss')}else{'--'}
+        $row.Cells['MonLastSample'].ToolTipText=if($stat){"First observation: $($stat.FirstSampleAt); Received by UI: $($stat.ReceivedAt); ICMP timeout: 1200 ms"}else{''}
     } finally {$script:MonitoringGridUpdating=$priorUpdating}
 }
 
@@ -3327,14 +3455,18 @@ function Refresh-MonitorTimelineGrid {
 function Refresh-MonitorSummary {
     if(-not $lblMonitorSummary){return}
     $enabled=@($script:MonitoringConfig.Values|Where-Object{[bool]$_.Enabled});$online=0;$offline=0;$unknown=0
-    foreach($cfg in $enabled){$st=$script:MonitoringStats[[string]$cfg.Target];if($st -and $st.State -eq 'ONLINE'){$online++}elseif($st -and $st.State -eq 'OFFLINE'){$offline++}else{$unknown++}}
+    foreach($cfg in $enabled){$st=$script:MonitoringStats[[string]$cfg.Target];if((Get-MonitorHealth -stat $st -cfg $cfg) -ne 'OK'){$unknown++}elseif($st.State -eq 'ONLINE'){$online++}elseif($st.State -eq 'OFFLINE'){$offline++}else{$unknown++}}
     $since=if($script:MonitoringSessionStartedAt){([datetime]$script:MonitoringSessionStartedAt).ToString('HH:mm:ss')}else{'--'}
-    $lblMonitorSummary.Text="Monitoring: Enabled $($enabled.Count) | Online $online | Offline $offline | Unknown $unknown | Stats since $since | Timeline $($script:MonitoringEvents.Count)/$($script:MonitoringMaxEvents)"
-    if($offline -gt 0){$lblMonitorSummary.ForeColor=[Drawing.Color]::Firebrick}elseif($enabled.Count -gt 0){$lblMonitorSummary.ForeColor=[Drawing.Color]::ForestGreen}else{$lblMonitorSummary.ForeColor=[Drawing.Color]::DimGray}
+    $lblMonitorSummary.Text="Monitoring: Enabled $($enabled.Count) | Online $online | Offline $offline | Unknown $unknown | Session since $since | Timeout 1200ms | Timeline $($script:MonitoringEvents.Count)/$($script:MonitoringMaxEvents)"
+    if($offline -gt 0){$lblMonitorSummary.ForeColor=[Drawing.Color]::Firebrick}elseif($unknown -gt 0){$lblMonitorSummary.ForeColor=[Drawing.Color]::DarkOrange}elseif($enabled.Count -gt 0){$lblMonitorSummary.ForeColor=[Drawing.Color]::ForestGreen}else{$lblMonitorSummary.ForeColor=[Drawing.Color]::DimGray}
 }
 
 function Reset-MonitorStats {
-    $new=@{};foreach($cfg in @($script:MonitoringConfig.Values)){$new[[string]$cfg.Target]=New-MonitorStat ([string]$cfg.Target) ([string]$cfg.Name)};$script:MonitoringStats=$new;$script:MonitoringSessionStartedAt=Get-Date;Refresh-MonitorGrid
+    $script:MonitoringEpoch=[guid]::NewGuid().ToString('N')
+    $new=@{}
+    foreach($cfg in @($script:MonitoringConfig.Values)){$new[[string]$cfg.Target]=New-MonitorStat ([string]$cfg.Target) ([string]$cfg.Name)}
+    $script:MonitoringStats=$new;$script:MonitoringSessionStartedAt=(Get-MonitorClock).At
+    Refresh-MonitorGrid
 }
 
 function Invoke-MonitorScheduler {
@@ -3349,7 +3481,14 @@ function Invoke-MonitorScheduler {
             if($isDue){$stat.LastScheduledAt=$now;[void]$due.Add([pscustomobject]@{Target=$target;Alias=[string]$cfg.Name})}
             if($due.Count -ge 24){break}
         }
-        if($due.Count -gt 0){[void](Enqueue-PingRequest 'MONITOR' $due.ToArray() 1200 24)}
+        if($due.Count -gt 0){
+            try {[void](Enqueue-PingRequest 'MONITOR' $due.ToArray() 1200 24)}
+            catch {
+                $queueError=$_.Exception.Message
+                foreach($entry in $due){Set-MonitorMeasurementError -target ([string]$entry.Target) -message $queueError}
+                Write-RuntimeLog 'MONITOR-QUEUE' $queueError
+            }
+        }
         if(-not $script:MonitoringLastUiRefresh -or (($now-[datetime]$script:MonitoringLastUiRefresh).TotalSeconds -ge 1)){
             foreach($cfg in @($script:MonitoringConfig.Values)){Update-MonitorGridRow ([string]$cfg.Target)};$script:MonitoringLastUiRefresh=$now;Refresh-MonitorSummary
         }

@@ -77,6 +77,21 @@ jobs:
           $deepEvidencePath=Join-Path $PWD 'ci-artifacts\deep-ui-e2e.json'
           if(-not (Test-Path -LiteralPath $deepEvidencePath)){throw 'deep-ui-e2e.json was not produced.'}
           $deepEvidence=[IO.File]::ReadAllText($deepEvidencePath) | ConvertFrom-Json
+          $measurement=$data.results | Where-Object {$_.name -eq 'measurement_correctness'} | Select-Object -First 1
+          $measurementPath=Join-Path $PWD 'ci-artifacts\measurement-correctness.json'
+          if(-not (Test-Path -LiteralPath $measurementPath)){throw 'Native measurement evidence missing'}
+          $measurementEvidence=[IO.File]::ReadAllText($measurementPath)|ConvertFrom-Json -ErrorAction Stop
+          Copy-Item -LiteralPath $measurementPath -Destination (Join-Path $safeDir 'measurement-correctness.json') -Force
+          if(-not $measurement -or [string]$measurement.status -ne 'PASS' -or [string]$measurementEvidence.status -ne 'PASS' -or [int]$measurementEvidence.fail -ne 0){throw 'Native measurement gate must independently PASS'}
+          $actual=(git rev-parse HEAD).Trim().ToLowerInvariant()
+          if($LASTEXITCODE -ne 0 -or $actual -notmatch '^[0-9a-f]{40}$'){throw 'Cannot resolve physical checkout revision'}
+          if([string]$measurementEvidence.sourceRevision -ne $actual){throw 'Native measurement evidence revision mismatch'}
+          $requiredMeasurement=@('duration_36h','measurement_error_not_network_loss','sequence_exact_math','reset_epoch_rejects_old','worker_stop_health','discovery_early_window','discovery_cancel_distinct','real_grid_headers_font_scale_1','real_grid_headers_font_scale_2','invariant_observation_vi-VN')
+          $measurementChecks=@($measurementEvidence.checks)
+          if(@($measurementChecks | Where-Object {$_.pass -isnot [bool] -or -not $_.pass}).Count -gt 0){throw 'Native measurement detail contains a failed or malformed check'}
+          foreach($requiredCheck in $requiredMeasurement){
+            if(@($measurementChecks | Where-Object {$_.name -eq $requiredCheck}).Count -ne 1){throw "Native measurement required check missing or duplicated: $requiredCheck"}
+          }
           $gui=$data.results | Where-Object {$_.name -eq 'interactive_gui_e2e'} | Select-Object -First 1
           $deepUi=$data.results | Where-Object {$_.name -eq 'deep_ui_e2e'} | Select-Object -First 1
           $routePlanner=$data.results | Where-Object {$_.name -eq 'route_scope_planner'} | Select-Object -First 1
@@ -84,13 +99,13 @@ jobs:
           $lan=$data.results | Where-Object {$_.name -eq 'real_lan_fast_balanced'} | Select-Object -First 1
           $cleanBaseline=$data.results | Where-Object {$_.name -eq 'machine_cleanliness_baseline'} | Select-Object -First 1
           $cleanPost=$data.results | Where-Object {$_.name -eq 'machine_cleanliness_post'} | Select-Object -First 1
-          $actual=(git rev-parse HEAD).Trim().ToLowerInvariant()
           $safe=[ordered]@{
             schemaVersion=1
             sourceRevision=$actual
             harnessSourceRevision=[string]$data.sourceRevision
             mode=[string]$data.mode
             interactiveGui=if($gui){[string]$gui.status}else{'MISSING'}
+            measurementCorrectness=[string]$measurementEvidence.status
             deepUi=if($deepUi){[string]$deepUi.status}else{'MISSING'}
             deepUiEvidenceStatus=[string]$deepEvidence.status
             deepUiEvidenceStage=[string]$deepEvidence.stage
