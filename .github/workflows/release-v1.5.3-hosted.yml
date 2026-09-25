@@ -1,0 +1,141 @@
+name: Publish v1.5.3 after hosted CI
+
+on:
+  workflow_run:
+    workflows: ["RF Network Tool CI"]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: rft-release-v1.5.3
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish v1.5.3 hosted-verified release
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+      attestations: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Publish v1.5.3 from successful main CI artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$SOURCE_SHA"
+
+          version="$(tr -d '\r\n' < VERSION)"
+          if [ "$version" != "1.5.3" ]; then
+            echo "Not the v1.5.3 finalization commit (VERSION=$version); no-op."
+            exit 0
+          fi
+
+          tag="v$version"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag already published; refusing to overwrite and exiting successfully."
+            exit 0
+          fi
+
+          mkdir -p release-assets
+          gh run download "$SOURCE_RUN" -R "$GITHUB_REPOSITORY" \
+            -n "rf-network-tool-v$version" -D release-assets
+
+          expected=(
+            "RF-Network-Tool-v${version}-FULL-QA-CI-E2E-PORTABLE.zip"
+            "RF-Network-Tool-v${version}-FULL-QA-CI-E2E-PROJECT.zip"
+            "RF-Network-Tool-v${version}-FULL-QA-CI-E2E-PORTABLE.spdx.json"
+            "RF-Network-Tool-v${version}-FULL-QA-CI-E2E-PROJECT.spdx.json"
+          )
+          for f in "${expected[@]}"; do test -s "release-assets/$f"; done
+
+          for f in release-assets/*.zip; do
+            gh attestation verify "$f" -R "$GITHUB_REPOSITORY"
+            gh attestation verify "$f" -R "$GITHUB_REPOSITORY" \
+              --predicate-type https://spdx.dev/Document/v2.3
+          done
+
+          (
+            cd release-assets
+            sha256sum -- *.zip *.spdx.json | sort > SHA256SUMS.txt
+            test "$(wc -l < SHA256SUMS.txt)" -eq 4
+          )
+
+          gh release create "$tag" release-assets/* -R "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "RF & Network Diagnostic Tool $tag — Hosted QA / Windows 10 Physical Not Run" \
+            --notes-file RELEASE_NOTES.md \
+            --draft
+
+          gh release view "$tag" -R "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,assets,url > release-assets/release-view-draft.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('release-assets/release-view-draft.json').read_text())
+          expected={
+              'RF-Network-Tool-v1.5.3-FULL-QA-CI-E2E-PORTABLE.zip',
+              'RF-Network-Tool-v1.5.3-FULL-QA-CI-E2E-PROJECT.zip',
+              'RF-Network-Tool-v1.5.3-FULL-QA-CI-E2E-PORTABLE.spdx.json',
+              'RF-Network-Tool-v1.5.3-FULL-QA-CI-E2E-PROJECT.spdx.json',
+              'SHA256SUMS.txt',
+          }
+          names={a['name'] for a in d['assets']}
+          assert d['tagName']=='v1.5.3', d
+          assert d['isDraft'] is True, d
+          assert d['isPrerelease'] is False, d
+          assert not (expected-names), sorted(expected-names)
+          PY
+
+          gh release edit "$tag" -R "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release view "$tag" -R "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,assets,url > release-assets/release-view.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('release-assets/release-view.json').read_text())
+          expected={
+              'RF-Network-Tool-v1.5.3-FULL-QA-CI-E2E-PORTABLE.zip',
+              'RF-Network-Tool-v1.5.3-FULL-QA-CI-E2E-PROJECT.zip',
+              'RF-Network-Tool-v1.5.3-FULL-QA-CI-E2E-PORTABLE.spdx.json',
+              'RF-Network-Tool-v1.5.3-FULL-QA-CI-E2E-PROJECT.spdx.json',
+              'SHA256SUMS.txt',
+          }
+          names={a['name'] for a in d['assets']}
+          assert d['tagName']=='v1.5.3', d
+          assert d['isDraft'] is False, d
+          assert d['isPrerelease'] is False, d
+          assert not (expected-names), sorted(expected-names)
+          print('V1.5.3 RELEASE PUBLISHED:', d['url'])
+          PY
+
+      - name: Upload v1.5.3 publication evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-publication-evidence-1.5.3
+          path: |
+            release-assets/SHA256SUMS.txt
+            release-assets/release-view-draft.json
+            release-assets/release-view.json
+          if-no-files-found: ignore

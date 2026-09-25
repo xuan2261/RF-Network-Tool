@@ -1,9 +1,10 @@
 # v1.5.3 candidate: measurement correctness and discovery lifecycle
 
 Base: 5dc8c076c5bf76e31d29606e9cba322d1d15c72d (published v1.5.2).
-This change does not move the v1.5.2 tag or publish a release. VERSION remains the
-last released version until finalization. Windows 10 physical qualification of
-the final candidate is required before promotion.
+The runtime hardening was developed from the published v1.5.2 baseline.
+For final v1.5.3 publication, the user explicitly authorized release without access
+to the Windows 10 physical laptop. Therefore physical qualification remains
+NOT RUN / NOT VERIFIED and is not represented as a PASS.
 
 ## Accepted scope
 
@@ -49,5 +50,9 @@ being reported as successful; it does not assert a live-network root cause.
 ## Release gate
 
 All original parser/static/lint/runtime/packaging gates remain active. No analyzer
-baseline increase or test suppression. Final exact-head hosted CI and physical
-Windows 10 results must be inspected, not inferred from file/step existence.
+baseline increase or test suppression. Exact-head and post-merge hosted CI must
+be inspected before publication.
+
+Windows 10 interactive physical Full qualification is intentionally waived for
+this release by explicit user authorization. Its status is NOT RUN / NOT VERIFIED;
+no v1.5.2 physical evidence may be reused as v1.5.3 evidence.

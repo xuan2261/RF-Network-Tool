@@ -1,62 +1,81 @@
-# RF & Network Diagnostic Tool v1.5.2 — Identity, Monitoring & Deep-Analysis Hardening
+# RF & Network Diagnostic Tool v1.5.3 — Monitoring Correctness & Discovery Lifecycle Hardening
+
+## Verification exception
+
+**Windows 10 interactive physical qualification was NOT RUN for v1.5.3.**
+The release was explicitly authorized without the physical gate because the user did not have access to the laptop at release time.
+
+Do not interpret this release as a Windows 10 physical PASS. The previous v1.5.2 physical evidence is not reused or relabeled as v1.5.3 evidence.
+
+Hosted verification for the v1.5.3 runtime did pass on Windows Server 2022 and Windows Server 2025, together with static/model, lint, chaos/recovery, synthetic performance, launcher E2E, machine-cleanliness, packaging, SBOM, attestation, and reproducibility gates.
 
 ## Scope
 
-v1.5.2 is a correctness and operability release built on v1.5.1 route-aware scanning.
+v1.5.3 hardens Monitoring correctness, long-duration accounting, UI readability, and name-discovery lifecycle handling.
 
-- Device-history naming is now MAC-bound and provenance-gated instead of reusing a historical name by IP alone.
-- Historical fallback names are prevented from being written back into a different device identity.
-- Deep Analysis / Refresh now uses shared mutable WinForms callback state, startup heartbeat tracking, and a bounded fail-closed watchdog.
-- Deep analysis preserves name provenance when UPnP supplies a friendly name.
-- Monitoring exposes OK/TOTAL samples, last-sample time, session start, and explicit millisecond units.
-- Monitoring renders the full retained timeline rather than silently truncating display to 200 rows.
-- Network scanning records per-phase timings and distinguishes core scan time from end-to-end discovery time.
-- The Windows 10 physical qualification now includes a release-critical deep_ui_e2e gate that opens Device Details and invokes the real Phân tích sâu / Refresh button path.
+- Collector health (WAITING, PAUSED, STALE, ENGINE ERROR) is separated from the last observed network state.
+- Local measurement/collector errors are counted separately and are no longer treated as network packet loss or outages.
+- Monitoring accounting uses bounded monotonic timing and rejects stale pre-reset / pre-pause results.
+- PingWorker records worker-observed per-target completion timestamps.
+- Multi-day UPTIME/DOWNTIME formatting uses whole TimeSpan days correctly.
+- Monitoring columns preserve full headers/minimum widths and use horizontal scrolling instead of squeezing 17 columns.
+- Opening Device Details reads adapter information without resetting CIDR or scan status.
+- Name discovery only reports success when the worker exits 0 and independent run/session-bound terminal evidence proves the requested observation window completed.
+- Cancelled, malformed, early, contradictory, and failed discovery terminal states cannot be shown as successful completion.
 
-## Correctness fixes
+## Regression coverage
 
-### Device identity / history
+The v1.5.3 native Windows measurement suite covers, among other checks:
 
-v1.5.1 could reuse a historical hostname when a different MAC later received the same IPv4 address. v1.5.2 removes IP-only history autofill when a MAC is known, requires provenance-bearing exact-MAC history, and prevents History-derived names from re-poisoning the identity store.
+- 36-hour duration formatting
+- measurement errors excluded from LOSS/OUTAGES
+- exact accounting sequence math
+- reset epoch rejection
+- pause/resume generation rejection
+- collector-stop health
+- stale-time bounds
+- valid 0 ms samples
+- discovery early-window rejection
+- discovery cancellation terminal semantics
+- real Monitoring DataGridView headers at font scales 1.0 / 1.25 / 1.5 / 2.0
+- locale-independent observation timestamp parsing, including vi-VN
+- Device Details adapter reads with no UI side effects
 
-### Deep Analysis / Refresh
+## Hosted verification evidence
 
-The Device Details dialog previously used multiple local variables across separate WinForms callback scriptblocks. v1.5.2 consolidates mutable worker lifecycle state, records heartbeat phase/progress, and aborts boundedly if startup never becomes observable.
+Exact runtime PR head:
+`9c49389f83fefc133d7efd1228ef83540d2e366a`
 
-### Monitoring
+PR CI:
+- workflow run `36070746171`: SUCCESS
+- Static + deterministic contracts: PASS
+- Windows PowerShell 5.1 integration (windows-2022): PASS
+- Windows PowerShell 5.1 integration (windows-2025): PASS
+- Native measurement correctness and header layout: PASS
+- PSScriptAnalyzer 1.25.0 gate: PASS
+- Chaos/recovery: PASS
+- Synthetic performance: PASS
+- Launcher diagnostic E2E: PASS
+- Machine cleanliness: PASS
+- Reproducible release package: PASS
+- SBOM/attestation/reproducibility checks: PASS
 
-The dashboard now makes the statistical horizon auditable with OK/TOTAL, LAST SAMPLE, and Stats since. MIN/AVG/MAX headers explicitly use milliseconds. The retained timeline and displayed timeline now have the same upper bound.
+Merged runtime commit on main:
+`dff1f2d38e0c0063592aef2fcb3271644929b5d8`
 
-## Verification evidence
+Post-merge main CI:
+- workflow run `36071327268`: SUCCESS
+- Static/model: PASS
+- Windows Server 2022: PASS
+- Windows Server 2025: PASS
+- Reproducible release package: PASS
 
-Exact runtime head before merge:
-`bda75e02be48ba55806c7a2c161cfcf8680508df`
+## Physical qualification status
 
-Windows 10 physical qualification:
-- workflow run `36024657880`
-- interactive_gui_e2e: PASS
-- deep_ui_e2e: PASS
-- deep-ui-e2e.json: PASS / completed
-- workerCompleted: true
-- workerSucceeded: true
-- lastPhase: Completed
-- route_scope_planner: PASS
-- route_scope_live: PASS
-- real_lan_fast_balanced: PASS
-- machine cleanliness baseline/post: PASS
-- aggregate: 17 PASS / 0 FAIL / 0 SKIP
-- physical evidence artifact SHA-256: `352d9e577f48a55addb6a23119e7118b36a8e4b8bab34437612dbc8fa3c5cd3d`
-
-Post-merge main commit:
-`ea2f6c8cef08afcc495bdcc9bd4c8b83eb8908b5`
-
-Post-merge hosted CI:
-- workflow run `36026333412`: SUCCESS
-- static/model: PASS
-- Windows PowerShell 5.1 integration on Windows Server 2022: PASS
-- Windows PowerShell 5.1 integration on Windows Server 2025: PASS
-- reproducible release package: PASS
+- Windows 10 interactive Full qualification for v1.5.3: **NOT RUN / NOT VERIFIED**
+- reason: user-authorized release without access to the physical laptop
+- v1.5.2 physical evidence remains valid only for v1.5.2 and is not carried forward as v1.5.3 evidence
 
 ## Release boundary
 
-This release-finalization change is metadata/documentation only. Runtime code is unchanged from the physically qualified and post-merge CI-verified v1.5.2 implementation.
+This release-finalization change only updates version metadata, documentation, the version contract, and a hosted release workflow. Runtime PowerShell code is unchanged from the hosted-CI-verified main commit above.
