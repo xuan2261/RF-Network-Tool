@@ -42,11 +42,20 @@ TAB NETWORK SCAN
 - Route mac dinh/public/sai interface/qua rong/host-only/trung lap bi bo qua. Neu doc route table loi, scan fail-soft ve primary CIDR.
 - Worker scan nam ngoai UI process callback path; UI poll state theo runId/session de loai stale state.
 - Name discovery dung DNS/PTR, ping -a/NetBIOS (tuy profile), mDNS/DNS-SD, SSDP/UPnP va cache evidence.
+- Discovery chi hien thanh cong khi worker exit 0 VA terminal JSON dung session/run chung minh da du cua so quan sat yeu cau.
+- Missing/malformed/cancelled/early/contradictory/failed terminal evidence khong duoc hien nhu scan hoan tat thanh cong.
+- Mo Device Details chi doc thong tin adapter; khong reset CIDR/status scan hien tai.
 
 TAB MONITORING - v1.5.3
 - Nguon target: danh sach da luu trong tab PING. Nhan Dong bo tu PING neu can cap nhat ten.
 - Moi target co ON/OFF rieng, interval 1/2/5/10/30 giay va tuy chon ALERT.
-- Metrics: STATUS, NOW, MIN, AVG, MAX, LOSS, UPTIME, DOWNTIME, OUTAGES, LAST CHANGE.
+- Metrics: STATUS, NOW, MIN ms, AVG ms, MAX ms, OK/TOTAL, LOSS, UPTIME, DOWNTIME, OUTAGES, LAST SAMPLE, LAST CHANGE.
+- STATUS tach suc khoe bo do (WAITING / PAUSED / STALE / ENGINE ERROR) khoi trang thai mang ONLINE/OFFLINE da quan sat.
+- Loi do noi bo/collector error duoc dem rieng, KHONG tinh vao ICMP LOSS va KHONG tao outage mang.
+- UPTIME/DOWNTIME la thoi gian trang thai ICMP DA QUAN SAT, co freshness bound; KHONG phai uptime he dieu hanh cua thiet bi.
+- Reset thong ke doi epoch; pause/resume doi generation de ket qua cu dang bay khong lam ban thong ke moi.
+- Mau 0 ms thanh cong van la mau hop le.
+- Bang Monitoring giu header day du, cot dinh danh frozen va cho phep scroll ngang thay vi ep 17 cot.
 - Tat ca ICMP monitoring dung cung persistent RF-Network-Tool-PingWorker.ps1; UI chi enqueue/poll ket qua.
 - Ping thu cong co request-freshness guard; ket qua monitoring cu khong duoc ghi de ket qua manual moi.
 - ALERT dung am bao + balloon tooltip non-modal, khong dung MessageBox chan UI.
@@ -125,6 +134,8 @@ VERIFICATION
 - Windows runtime acceptance chi PASS sau khi RUN-DIAGNOSTIC.cmd + RUN-TESTS.cmd + smoke test tren Windows PowerShell 5.1/WinForms deu PASS.
 
 V1.5.3 RELEASE VERIFICATION NOTE
-- Hosted CI Windows Server 2022/2025: PASS.
+- Hosted CI Windows Server 2022/2025, static/model, lint, native measurement, packaging, SBOM, attestation va reproducibility: PASS.
 - Windows 10 interactive physical Full qualification: NOT RUN / NOT VERIFIED tai thoi diem release.
 - Physical evidence v1.5.2 khong duoc tai su dung de ket luan physical PASS cho v1.5.3.
+- Tag/assets v1.5.3 da publish; khong move tag hoac replace asset de sua loi. Neu co loi moi, tao patch release v1.5.4+.
+- Release immutability repository setting chua duoc xac nhan enabled; neu bat sau nay, chi ap dung cho future releases.
