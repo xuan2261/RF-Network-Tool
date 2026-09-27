@@ -73,6 +73,8 @@ The repository immutable-releases setting is now enabled and verified as `{"enab
 
 The already-published v1.5.3 release still reports `immutable=false`, as expected because the setting is not retroactive. Issue #22 remains open until the next release is created draft-first with all assets attached before publication and the published release is verified with `immutable=true`.
 
+The generic tag-release workflow is hardened for the next release: it verifies the exact tag revision before publication, requires the draft asset set to match exactly, validates local checksums, and after publication requires Release API `immutable=true` plus exact uploaded asset SHA-256/size matches before Issue #22 can be closed.
+
 ## Change policy after publication
 
 - Do not move `v1.5.3`.

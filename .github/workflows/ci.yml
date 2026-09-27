@@ -224,9 +224,13 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      issues: write
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
       - name: Validate tag against VERSION
         id: version
         shell: bash
@@ -238,25 +242,49 @@ jobs:
             echo "Tag/version mismatch: tag=$GITHUB_REF_NAME VERSION=$version expected=$expected_tag" >&2
             exit 1
           fi
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$GITHUB_SHA" ]; then
+            echo "Checkout/release revision mismatch: checkout=$actual event=$GITHUB_SHA" >&2
+            exit 1
+          fi
           {
             echo "version=$version"
             echo "tag=$expected_tag"
           } >> "$GITHUB_OUTPUT"
+      - name: Verify tag resolves to exact release revision
+        id: tagref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_sha="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+          if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "Tag/release revision mismatch: tag=$tag_sha expected=$GITHUB_SHA" >&2
+            exit 1
+          fi
+          echo "tag_sha=$tag_sha" >> "$GITHUB_OUTPUT"
       - name: Download verified release candidates
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ${{ needs.package.outputs.artifact_name }}
           path: release-assets
-      - name: Build public checksum file
+      - name: Build and verify public checksum file
+        shell: bash
         run: |
+          set -euo pipefail
           cd release-assets
           sha256sum -- *.zip *.spdx.json | sort > SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -eq 4
+          sha256sum -c SHA256SUMS.txt
       - name: Create draft, verify assets, then publish
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
         run: |
           set -euo pipefail
           expected=(
@@ -297,32 +325,61 @@ jobs:
           assert d['tagName']==tag, d
           assert d['isDraft'] is True, d
           assert d['isPrerelease'] is False, d
-          assert not (expected-names), f'Missing draft release assets: {sorted(expected-names)}'
+          assert names==expected, f'Draft release asset set mismatch: expected={sorted(expected)} actual={sorted(names)}'
           print('DRAFT RELEASE ASSET VERIFICATION PASSED:', ', '.join(sorted(expected)))
           PY
 
           gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest
+
+          verified=0
+          for _ in 1 2 3 4 5; do
+            gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+              > release-assets/release-api.json
+            published_tag_sha="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+            if python release_tools/verify_published_release.py \
+              --release-json release-assets/release-api.json \
+              --asset-dir release-assets \
+              --version "$RELEASE_VERSION" \
+              --expected-sha "$GITHUB_SHA" \
+              --tag-sha "$published_tag_sha" \
+              --evidence-out release-assets/release-integrity-evidence.json; then
+              verified=1
+              break
+            fi
+            sleep 3
+          done
+          test "$verified" -eq 1
+
           gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" \
             --json tagName,isDraft,isPrerelease,assets,url > release-assets/release-view.json
+          echo "RELEASE ASSET VERIFICATION PASSED: $RELEASE_TAG"
+          echo "IMMUTABLE RELEASE VERIFICATION PASSED: $RELEASE_TAG"
+      - name: Close immutable-release rollout issue after verified publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
           python - <<'PY'
-          import json, os
+          import json
           from pathlib import Path
-          version=os.environ['RELEASE_VERSION']; tag=os.environ['RELEASE_TAG']
-          d=json.loads(Path('release-assets/release-view.json').read_text(encoding='utf-8'))
-          names={a['name'] for a in d['assets']}
-          expected={
-              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PORTABLE.zip',
-              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PROJECT.zip',
-              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PORTABLE.spdx.json',
-              f'RF-Network-Tool-v{version}-FULL-QA-CI-E2E-PROJECT.spdx.json',
-              'SHA256SUMS.txt',
-          }
-          assert d['tagName']==tag, d
-          assert d['isDraft'] is False, d
-          assert d['isPrerelease'] is False, d
-          assert not (expected-names), f'Missing release assets: {sorted(expected-names)}'
-          print('RELEASE ASSET VERIFICATION PASSED:', ', '.join(sorted(expected)))
+          d=json.loads(Path('release-assets/release-integrity-evidence.json').read_text(encoding='utf-8'))
+          assert d.get('pass') is True, d
+          assert d.get('immutable') is True, d
           PY
+          state="$(gh issue view 22 -R "$GITHUB_REPOSITORY" --json state --jq .state 2>/dev/null || true)"
+          if [ "$state" = "OPEN" ]; then
+            gh issue close 22 -R "$GITHUB_REPOSITORY" --reason completed \
+              --comment "Verified ${RELEASE_TAG} as an immutable published release on exact source revision ${GITHUB_SHA}; release asset digests matched the verified CI candidates."
+          elif [ "$state" = "CLOSED" ]; then
+            echo "Issue #22 already closed; no action needed."
+          else
+            echo "Issue #22 could not be resolved; refusing to claim rollout closure." >&2
+            exit 1
+          fi
       - name: Upload release publication evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -332,5 +389,6 @@ jobs:
             release-assets/SHA256SUMS.txt
             release-assets/release-view-draft.json
             release-assets/release-view.json
+            release-assets/release-api.json
+            release-assets/release-integrity-evidence.json
           if-no-files-found: ignore
-
