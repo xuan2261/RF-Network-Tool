@@ -24,9 +24,9 @@ Portable Windows RF & network diagnostics tool built for Windows PowerShell 5.1 
 | Chaos / recovery + synthetic performance | PASS |
 | Launcher diagnostic E2E + machine-cleanliness gates | PASS |
 | Reproducible package + SPDX SBOM + attestations | PASS |
-| Windows 10 interactive physical Full qualification | **NOT RUN / NOT VERIFIED** |
+| Windows 10 interactive physical Full qualification | **PASS — post-release backfill run #9 (`36140460684`)** |
 
-The release was explicitly published without the Windows 10 physical gate because the physical laptop was unavailable. The earlier v1.5.2 physical result is **not** reused as v1.5.3 evidence.
+The release was explicitly published without the Windows 10 physical gate because the physical laptop was unavailable. That publication-time exception remains part of the historical release record. Post-release backfill run #9 (`36140460684`) later qualified the exact v1.5.3 release commit on Windows 10 and passed every required physical gate with aggregate `fail=0`; the earlier v1.5.2 physical result was not reused.
 
 See [STATUS_v1.5.3.md](STATUS_v1.5.3.md) for the exact CI runs, release-asset digests, open follow-up gates, and current supply-chain status.
 
@@ -100,4 +100,4 @@ The v1.5.3 GitHub Release was produced from a successful hosted main CI run and 
 
 Current release immutability is **not enabled** for v1.5.3. GitHub release immutability, when enabled at repository level, applies to future releases only. The project tracks this follow-up separately; existing v1.5.3 tag/assets should not be moved or replaced.
 
-If v1.5.3 later fails physical qualification, keep v1.5.3 unchanged and fix the defect in a new patch release (v1.5.4+).
+The v1.5.3 physical backfill has passed. If later use reveals a runtime defect, keep v1.5.3 tag/assets unchanged and fix the defect in a new patch release (v1.5.4+).
