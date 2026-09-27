@@ -12,6 +12,10 @@ This file is the **stateful post-release status** for v1.5.3. Evergreen usage be
 - v1.5.3 Release API immutability flag at last check: **false**
 - repository immutable-releases setting: **enabled=true**, `enforced_by_owner=false`
 
+## Repository governance
+
+The default branch is protected by repository ruleset [Protect main via PR + CI](https://github.com/xuan2261/RF-Network-Tool/rules/24070420). The ruleset is **active**, targets the default branch, has no bypass actors, requires changes through pull requests, blocks deletion and force-push updates, requires review threads to be resolved, and requires the repository's four release-gating GitHub Actions checks before merge. Required approvals remain zero so the personal repository is not self-locked; the up-to-date/strict status-check policy is intentionally disabled to avoid redundant rebuilds while still requiring the exact head commit checks to pass.
+
 ## Verification ledger
 
 | Evidence | Result |
