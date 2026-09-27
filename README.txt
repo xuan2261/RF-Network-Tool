@@ -136,6 +136,8 @@ VERIFICATION
 V1.5.3 RELEASE VERIFICATION NOTE
 - Hosted CI Windows Server 2022/2025, static/model, lint, native measurement, packaging, SBOM, attestation va reproducibility: PASS.
 - Windows 10 interactive physical Full qualification: NOT RUN / NOT VERIFIED tai thoi diem release.
+- Post-release physical backfill run #9 (36140460684) tren dung SHA 1ae01b7b4e3da80f80d004f0b41f5e4929605128: PASS.
+- Tat ca physical gates bat buoc PASS; aggregate fail=0, skip=0. Sanitized evidence artifact da duoc inspect.
 - Physical evidence v1.5.2 khong duoc tai su dung de ket luan physical PASS cho v1.5.3.
 - Tag/assets v1.5.3 da publish; khong move tag hoac replace asset de sua loi. Neu co loi moi, tao patch release v1.5.4+.
 - Release immutability repository setting chua duoc xac nhan enabled; neu bat sau nay, chi ap dung cho future releases.
