@@ -26,9 +26,23 @@ This file is the **stateful post-release status** for v1.5.3. Evergreen usage be
 | Static/model + PSScriptAnalyzer | PASS |
 | Chaos/recovery + synthetic performance | PASS |
 | Reproducible packaging + SPDX SBOM + attestations | PASS |
-| Windows 10 interactive physical Full qualification | **NOT RUN / NOT VERIFIED** |
+| Windows 10 interactive physical Full qualification | **PASS — post-release backfill run #9 (`36140460684`)** |
 
-Publication without Windows 10 physical qualification was an explicit user-authorized exception because the laptop was unavailable.
+Publication without Windows 10 physical qualification was an explicit user-authorized exception because the laptop was unavailable. The publication-time statement is preserved in `RELEASE_NOTES.md`; it does not describe the later backfill state.
+
+## Physical backfill evidence
+
+- workflow: `RF Network Tool Physical Qualification`
+- successful run: #9 / `36140460684`
+- exact qualified revision: `1ae01b7b4e3da80f80d004f0b41f5e4929605128`
+- runner: Windows 10 Pro build 19045, Windows PowerShell 5.1.19041.6456
+- sanitized artifact: `physical-qualification-evidence` / artifact `10868745380`
+- artifact digest: `sha256:8fcc80d5f683bac13b42c3582891e07a835a2541143945eebd23a5e450de36ee`
+- aggregate physical result: `18 PASS / 0 FAIL / 0 SKIP`
+- required gates: `measurement_correctness`, `interactive_gui_e2e`, `deep_ui_e2e`, `route_scope_planner`, `route_scope_live`, `real_lan_fast_balanced`, machine-cleanliness baseline/post — all PASS
+- independent deep-UI evidence: `status=PASS`, `stage=completed`, `workerCompleted=true`, `workerSucceeded=true`, `lastPhase=Completed`
+
+An earlier backfill attempt (#8 / `36139701374`) failed `deep_ui_e2e` and is not treated as passing evidence. Run #9 on the same release SHA subsequently passed the complete gate set.
 
 ## Published assets
 
@@ -42,31 +56,15 @@ Publication without Windows 10 physical qualification was an explicit user-autho
 
 Use the public `SHA256SUMS.txt` in the release when verifying downloaded ZIP/SBOM assets.
 
-## Open follow-ups
+## Follow-ups
 
-### #21 — Windows 10 physical backfill
+### #21 — Windows 10 physical backfill — COMPLETE
 
 https://github.com/xuan2261/RF-Network-Tool/issues/21
 
-Required target:
+Run #9 (`36140460684`) qualified the exact v1.5.3 release SHA and satisfied every required physical gate. The sanitized evidence artifact was inspected before closing the issue. No tag or release asset was moved or replaced.
 
-- ref/tag: `v1.5.3`
-- exact SHA: `1ae01b7b4e3da80f80d004f0b41f5e4929605128`
-
-Required physical gates include:
-
-- `measurement_correctness`
-- `interactive_gui_e2e`
-- `deep_ui_e2e`
-- `route_scope_planner`
-- `route_scope_live`
-- `real_lan_fast_balanced`
-- machine-cleanliness baseline/post
-- aggregate failure count = 0
-
-Do not move/recreate the tag or replace assets when backfilling this evidence.
-
-### #22 — Enable immutable releases for future releases
+### #22 — Enable immutable releases for future releases — OPEN
 
 https://github.com/xuan2261/RF-Network-Tool/issues/22
 
@@ -78,5 +76,5 @@ The v1.5.3 release itself currently reports `immutable=false`; enabling the repo
 
 - Do not move `v1.5.3`.
 - Do not replace v1.5.3 ZIP/SBOM/checksum assets to patch behavior.
-- If physical backfill or later use finds a runtime defect, fix it in **v1.5.4+**.
+- If later use finds a runtime defect, fix it in **v1.5.4+**.
 - Preserve v1.5.3 release notes as the publication-time verification statement.
