@@ -55,7 +55,7 @@ https://github.com/xuan2261/RF-Network-Tool/releases/tag/v1.5.3
 
 The release contains the portable ZIP, project ZIP, two SPDX SBOM files and `SHA256SUMS.txt`.
 
-At the latest documentation refresh, the v1.5.3 Release API reports `immutable=false`. Repository release immutability is tracked in Issue #22. GitHub documents that enabling repository release immutability applies to future releases only; it does not retroactively make v1.5.3 immutable.
+The repository immutable-releases setting is now enabled and verified for future releases. The v1.5.3 Release API still reports `immutable=false`, as expected because GitHub release immutability is not retroactive. Issue #22 remains open until the next release is published draft-first and verified with `immutable=true`.
 
 Do not move the v1.5.3 tag or replace its release assets to correct later defects.
 

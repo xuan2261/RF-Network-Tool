@@ -9,7 +9,8 @@ This file is the **stateful post-release status** for v1.5.3. Evergreen usage be
 - release commit: `1ae01b7b4e3da80f80d004f0b41f5e4929605128`
 - published release: https://github.com/xuan2261/RF-Network-Tool/releases/tag/v1.5.3
 - release state: published, not draft, not prerelease
-- Release API immutability flag at last check: **false**
+- v1.5.3 Release API immutability flag at last check: **false**
+- repository immutable-releases setting: **enabled=true**, `enforced_by_owner=false`
 
 ## Verification ledger
 
@@ -68,9 +69,9 @@ Run #9 (`36140460684`) qualified the exact v1.5.3 release SHA and satisfied ever
 
 https://github.com/xuan2261/RF-Network-Tool/issues/22
 
-GitHub documents that repository release immutability applies to **future releases only**. When enabled, published release tags/assets are locked while title/notes and selected release metadata remain editable.
+The repository immutable-releases setting is now enabled and verified as `{"enabled":true,"enforced_by_owner":false}`. GitHub documents that this setting applies to **future releases only**. Published immutable release tags/assets are locked while title/notes and selected release metadata remain editable.
 
-The v1.5.3 release itself currently reports `immutable=false`; enabling the repository setting later will not retroactively change that.
+The already-published v1.5.3 release still reports `immutable=false`, as expected because the setting is not retroactive. Issue #22 remains open until the next release is created draft-first with all assets attached before publication and the published release is verified with `immutable=true`.
 
 ## Change policy after publication
 
