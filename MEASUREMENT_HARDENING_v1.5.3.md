@@ -3,7 +3,7 @@
 v1.5.3 was developed from the published v1.5.2 baseline and released from commit
 `1ae01b7b4e3da80f80d004f0b41f5e4929605128`.
 
-The user explicitly authorized publication while the Windows 10 physical laptop was unavailable. Therefore Windows 10 interactive physical qualification remains **NOT RUN / NOT VERIFIED** for v1.5.3 and is not represented as a PASS.
+The user explicitly authorized publication while the Windows 10 physical laptop was unavailable, so the publication-time status was **NOT RUN / NOT VERIFIED**. Post-release backfill run #9 (`36140460684`) later qualified the exact v1.5.3 release commit on Windows 10 and passed the full physical gate set.
 
 ## Accepted scope
 
@@ -42,11 +42,11 @@ Release-finalization commit:
 
 ### Physical evidence
 
-Windows 10 interactive Full qualification for v1.5.3: **NOT RUN / NOT VERIFIED**.
+Windows 10 interactive Full qualification for v1.5.3: **PASS** via post-release workflow run #9 (`36140460684`) on exact release SHA `1ae01b7b4e3da80f80d004f0b41f5e4929605128`.
 
-v1.5.2 physical evidence is valid only for v1.5.2 and must not be relabeled as v1.5.3 evidence.
+The run passed native measurement, interactive GUI, deep UI with independent completed-worker evidence, route-scope planner/live checks, real-LAN FAST/BALANCED, machine-cleanliness baseline/post, and aggregate `fail=0` / `skip=0`. Sanitized artifact `physical-qualification-evidence` (`10868745380`) was inspected.
 
-Physical backfill is tracked in GitHub Issue #21. If that future run finds a defect, v1.5.3 remains unchanged and the fix belongs in v1.5.4+.
+The earlier v1.5.2 physical evidence remains valid only for v1.5.2 and was not relabeled or reused as v1.5.3 evidence. Issue #21 is complete. The publication-time `RELEASE_NOTES.md` remains the historical statement that the physical gate had not yet been run when v1.5.3 was published.
 
 ## Release and supply-chain status
 
@@ -63,4 +63,4 @@ Do not move the v1.5.3 tag or replace its release assets to correct later defect
 
 The earlier observation where a DEEP scan showed only a small residual time beyond core scanning cannot be assigned a historical root cause without that run's logs. v1.5.3 fixes the fail-open behavior: an early/crashed discovery worker can no longer be presented as successful solely because the process exited.
 
-Hosted control/layout tests are not proof of every Windows display/DPI/topology combination. See `STATUS_v1.5.3.md` for current open follow-ups.
+Hosted control/layout tests and one successful Windows 10 physical qualification are not proof of every Windows display/DPI/topology combination. See `STATUS_v1.5.3.md` for the current evidence ledger and remaining follow-ups.

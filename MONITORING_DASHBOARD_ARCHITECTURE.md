@@ -149,4 +149,4 @@ Monitoring remains ICMP-based. A device that blocks ICMP can be `L2 Seen` in Net
 
 Worker-observed sample timestamps are application timestamps, not NIC/hardware packet timestamps.
 
-Windows 10 interactive physical Full qualification for v1.5.3 was not run at publication time; hosted Windows Server 2022/2025 coverage does not replace that physical evidence.
+Windows 10 interactive physical Full qualification for v1.5.3 was not run at publication time. Post-release backfill run #9 (`36140460684`) later passed on the exact release SHA; this complements rather than replaces the hosted Windows Server 2022/2025 coverage.
