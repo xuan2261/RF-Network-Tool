@@ -98,6 +98,6 @@ Do not mix runtime files from different releases.
 
 The v1.5.3 GitHub Release was produced from a successful hosted main CI run and contains two ZIPs, two SPDX SBOM documents, and `SHA256SUMS.txt`.
 
-Current release immutability is **not enabled** for v1.5.3. GitHub release immutability, when enabled at repository level, applies to future releases only. The project tracks this follow-up separately; existing v1.5.3 tag/assets should not be moved or replaced.
+Repository release immutability is now **enabled for future releases**. The already-published v1.5.3 release still reports `immutable=false` because the repository setting is not retroactive; its existing tag/assets should not be moved or replaced. Issue #22 remains open until a future release is published through the draft-first workflow and verified with `immutable=true`.
 
 The v1.5.3 physical backfill has passed. If later use reveals a runtime defect, keep v1.5.3 tag/assets unchanged and fix the defect in a new patch release (v1.5.4+).
