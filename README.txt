@@ -140,4 +140,4 @@ V1.5.3 RELEASE VERIFICATION NOTE
 - Tat ca physical gates bat buoc PASS; aggregate fail=0, skip=0. Sanitized evidence artifact da duoc inspect.
 - Physical evidence v1.5.2 khong duoc tai su dung de ket luan physical PASS cho v1.5.3.
 - Tag/assets v1.5.3 da publish; khong move tag hoac replace asset de sua loi. Neu co loi moi, tao patch release v1.5.4+.
-- Release immutability repository setting chua duoc xac nhan enabled; neu bat sau nay, chi ap dung cho future releases.
+- Release immutability repository setting da enabled cho future releases va da verify enabled=true; v1.5.3 van immutable=false vi setting khong hoi to. Issue #22 giu OPEN den khi release ke tiep duoc publish draft-first va verify immutable=true.
